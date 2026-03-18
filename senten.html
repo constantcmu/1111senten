@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fluent Flashcards</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        /* CSS: Bright, Clean & Modern Style */
+        :root {
+            --bg-light: #f4f7f6;
+            --primary-color: #4a90e2;
+            --secondary-color: #ff6b6b;
+            --text-main: #2c3e50;
+            --text-muted: #7f8c8d;
+            --card-bg: #ffffff;
+            --highlight-bg: #ffeaa7;
+            --font-main: 'Prompt', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #e0c3fc 0%, #8ec5fc 100%);
+            color: var(--text-main);
+            font-family: var(--font-main);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 750px;
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            margin-top: 20px;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: var(--primary-color);
+            font-size: 2.2em;
+            margin-top: 0;
+            margin-bottom: 10px;
+            letter-spacing: 0.5px;
+        }
+
+        .stats {
+            text-align: center;
+            font-size: 1em;
+            margin-bottom: 25px;
+            color: var(--text-muted);
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 10px;
+            display: inline-block;
+        }
+
+        .stats span {
+            color: var(--primary-color);
+            font-weight: bold;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+
+        input, select, button {
+            background-color: #f8f9fa;
+            color: var(--text-main);
+            border: 2px solid #e9ecef;
+            padding: 12px 15px;
+            border-radius: 10px;
+            font-family: var(--font-main);
+            font-size: 1em;
+            outline: none;
+            transition: all 0.2s ease-in-out;
+        }
+
+        input::placeholder {
+            color: #adb5bd;
+        }
+
+        input {
+            flex: 2;
+        }
+
+        select {
+            flex: 1;
+            cursor: pointer;
+            appearance: none;
+            background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%), linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+            background-position: calc(100% - 20px) calc(1em + 2px), calc(100% - 15px) calc(1em + 2px);
+            background-size: 5px 5px, 5px 5px;
+            background-repeat: no-repeat;
+        }
+
+        input:focus, select:focus {
+            border-color: var(--primary-color);
+            background-color: #fff;
+            box-shadow: 0 0 0 4px rgba(74, 144, 226, 0.15);
+        }
+
+        /* Flashcard Container */
+        .flashcard {
+            background: var(--card-bg);
+            border: 2px solid #edf2f7;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03);
+            padding: 30px;
+            border-radius: 16px;
+            margin-bottom: 30px;
+            min-height: 250px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+            position: relative;
+            transition: all 0.3s ease;
+        }
+
+        .flashcard::after {
+            content: 'Learning';
+            position: absolute;
+            top: 15px;
+            right: 20px;
+            background: #e8f4fd;
+            padding: 4px 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+            color: var(--primary-color);
+            border-radius: 20px;
+        }
+
+        /* เมื่อกด Mastered แล้วจะหรี่แสงลง */
+        .flashcard.mastered {
+            border-color: #e2e8f0;
+            background: #f8fafc;
+            box-shadow: none;
+        }
+
+        .flashcard.mastered::after {
+            content: 'Mastered';
+            background: #e6ffed;
+            color: #27ae60;
+        }
+
+        .flashcard.mastered .content {
+            color: var(--text-muted);
+        }
+
+        .flashcard.mastered .content span {
+            background: #f1f3f5;
+            color: var(--text-muted);
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .flashcard.mastered .label {
+            background: #cbd5e1;
+            color: #fff;
+        }
+
+        .line {
+            display: flex;
+            align-items: flex-start;
+            font-size: 1.15em;
+            line-height: 1.6;
+        }
+
+        .label {
+            width: 55px;
+            font-weight: bold;
+            font-size: 0.8em;
+            flex-shrink: 0;
+            background: var(--primary-color);
+            color: #fff;
+            padding: 5px 8px;
+            border-radius: 8px;
+            margin-right: 15px;
+            margin-top: 4px;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+
+        /* สีแยกตามภาษา */
+        .line:nth-child(1) .label { background: #ff7675; }
+        .line:nth-child(2) .label { background: #fdcb6e; color: #2d3436; }
+        .line:nth-child(3) .label { background: #74b9ff; }
+        .line:nth-child(4) .label { background: #a29bfe; }
+        .line:nth-child(5) .label { background: #00b894; }
+
+        .content {
+            flex: 1;
+            color: var(--text-main);
+        }
+
+        /* Keyword Highlighting */
+        .content span {
+            background: var(--highlight-bg);
+            color: red;
+            font-weight: 800;
+            padding: 2px 6px;
+            border-radius: 6px;
+            border-bottom: 2px solid #fdcb6e;
+        }
+
+        /* Action Buttons */
+        .actions {
+            display: flex;
+            gap: 20px;
+        }
+
+        button {
+            flex: 1;
+            cursor: pointer;
+            font-weight: bold;
+            letter-spacing: 1px;
+            border: none;
+            padding: 16px;
+            border-radius: 12px;
+            font-size: 1.1em;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        #btnRandom {
+            background: linear-gradient(135deg, #6dd5ed 0%, #2980b9 100%);
+            color: white;
+        }
+
+        #btnRandom:hover {
+            box-shadow: 0 6px 12px rgba(41, 128, 185, 0.3);
+            transform: translateY(-2px);
+        }
+
+        #btnMastered {
+            background: linear-gradient(135deg, #a8e063 0%, #56ab2f 100%);
+            color: white;
+        }
+
+        #btnMastered:hover:not(:disabled) {
+            box-shadow: 0 6px 12px rgba(86, 171, 47, 0.3);
+            transform: translateY(-2px);
+        }
+
+        #btnMastered:disabled {
+            background: #ecf0f1;
+            color: #a4b0be;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <h1>🌟 Fluent Flashcards</h1>
+            <div class="stats">
+                Progress: <span id="masteredCount">0</span> / <span id="totalCount">0</span> Mastered
+            </div>
+            <div class="controls">
+                <input type="text" id="searchInput" placeholder="Search keywords...">
+                <select id="groupFilter">
+                    <option value="all">ALL_GROUPS</option>
+                </select>
+            </div>
+        </header>
+
+        <div class="flashcard" id="flashcard">
+            <div class="line"><span class="label">ENG:</span> <span id="text-en" class="content"></span></div>
+            <div class="line"><span class="label">IPA:</span> <span id="text-ipa" class="content"></span></div>
+            <div class="line"><span class="label">CHI:</span> <span id="text-ch" class="content"></span></div>
+            <div class="line"><span class="label">PY:</span> <span id="text-py" class="content"></span></div>
+            <div class="line"><span class="label">THAI:</span> <span id="text-th" class="content"></span></div>
+        </div>
+
+        <div class="actions">
+            <button id="btnRandom">🎲 Next Card</button>
+            <button id="btnMastered">✅ Mark Mastered</button>
+        </div>
+    </div>
+
+    <script>
+
+        // State Management
+        let sentences = [];
+        let masteredIds = JSON.parse(localStorage.getItem('cyberpunk_mastered_data')) || [];
+        let filteredSentences = [];
+        let currentSentence = null;
+
+        // DOM Elements
+        const elSearch = document.getElementById('searchInput');
+        const elGroup = document.getElementById('groupFilter');
+        const elMasteredCount = document.getElementById('masteredCount');
+        const elTotalCount = document.getElementById('totalCount');
+        const btnRandom = document.getElementById('btnRandom');
+        const btnMastered = document.getElementById('btnMastered');
+        const flashcard = document.getElementById('flashcard');
+
+        // Fetch data from txt file
+        async function loadData() {
+            try {
+                const response = await fetch('./data_with_highlights.txt');
+                sentences = await response.json();
+                
+                init(); // เริ่มทำงานแอปหลังจากโหลดข้อมูลเสร็จ
+            } catch (error) {
+                console.error("Error loading data:", error);
+                document.getElementById('text-en').innerHTML = "ERROR: [ DATA_FETCH_FAILED ]";
+                document.getElementById('text-ipa').innerHTML = "Cannot read 'data_with_highlights.txt'";
+                document.getElementById('text-ch').innerHTML = "Did you open this via Live Server?";
+            }
+        }
+
+        // Initialize System
+        function init() {
+            filteredSentences = [...sentences];
+            elTotalCount.textContent = sentences.length;
+            populateGroups();
+            updateStats();
+            filterData(); // โหลดการ์ดใบแรก
+            
+            // Event Listeners
+            elSearch.addEventListener('input', filterData);
+            elGroup.addEventListener('change', filterData);
+            btnRandom.addEventListener('click', getRandomCard);
+            btnMastered.addEventListener('click', markMastered);
+        }
+
+        // Extract groups dynamically from data
+        function populateGroups() {
+            const groups = [...new Set(sentences.map(s => s.group))];
+            groups.forEach(g => {
+                const opt = document.createElement('option');
+                opt.value = g;
+                opt.textContent = g;
+                elGroup.appendChild(opt);
+            });
+        }
+
+        // Filter engine (Search & Group)
+        function filterData() {
+            const term = elSearch.value.toLowerCase();
+            const group = elGroup.value;
+
+            filteredSentences = sentences.filter(s => {
+                const matchGroup = group === 'all' || s.group === group;
+                
+                // ลบ HTML tags (<span...>) ออกก่อนนำไปค้นหา เพื่อไม่ให้ค้นหาติดคำว่า "span"
+                const rawText = `${s.en} ${s.ch} ${s.py} ${s.th}`.replace(/<[^>]*>?/gm, '').toLowerCase();
+                const matchSearch = rawText.includes(term);
+                
+                return matchGroup && matchSearch;
+            });
+
+            getRandomCard();
+        }
+
+        // Randomly pick a card from filtered list
+        function getRandomCard() {
+            if (filteredSentences.length === 0) {
+                clearCard();
+                document.getElementById('text-en').innerHTML = "ERROR: NO_DATA_FOUND";
+                return;
+            }
+            
+            const randomIndex = Math.floor(Math.random() * filteredSentences.length);
+            currentSentence = filteredSentences[randomIndex];
+            renderCard(currentSentence);
+        }
+
+        // Render card content and keywords
+        function renderCard(sentence) {
+            document.getElementById('text-en').innerHTML = sentence.en;
+            document.getElementById('text-ipa').innerHTML = sentence.ipa;
+            document.getElementById('text-ch').innerHTML = sentence.ch;
+            document.getElementById('text-py').innerHTML = sentence.py;
+            document.getElementById('text-th').innerHTML = sentence.th;
+
+            const isMastered = masteredIds.includes(sentence.id);
+            if (isMastered) {
+                flashcard.classList.add('mastered');
+                btnMastered.disabled = true;
+                btnMastered.textContent = "⭐ Mastered";
+            } else {
+                flashcard.classList.remove('mastered');
+                btnMastered.disabled = false;
+                btnMastered.textContent = "✅ Mark Mastered";
+            }
+        }
+
+        // Utility: Clear card when no data
+        function clearCard() {
+            ['en', 'ipa', 'ch', 'py', 'th'].forEach(key => {
+                document.getElementById(`text-${key}`).innerHTML = '';
+            });
+            btnMastered.disabled = true;
+            flashcard.classList.remove('mastered');
+            currentSentence = null;
+        }
+
+        // Save progress to LocalStorage
+        function markMastered() {
+            if (!currentSentence || masteredIds.includes(currentSentence.id)) return;
+            
+            masteredIds.push(currentSentence.id);
+            localStorage.setItem('cyberpunk_mastered_data', JSON.stringify(masteredIds));
+            
+            updateStats();
+            renderCard(currentSentence); // Re-render to update UI status
+        }
+
+        function updateStats() {
+            elMasteredCount.textContent = masteredIds.length;
+        }
+
+        // Boot up
+        loadData();
+
+    </script>
+</body>
+</html>
