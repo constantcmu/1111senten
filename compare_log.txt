@@ -1,0 +1,49 @@
+Excel File Length: 1111
+Excel Unique Sentences: 1104
+Excel has 7 duplicated sentences.
+JSON File Length: 1104
+JSON Unique Sentences: 1103
+JSON has 1 duplicated sentences.
+--- Differences ---
+Sentences in Excel but MISSING in JSON: 301
+  - am i allowed to take pictures here?
+  - are you a tea or a coffee drinker?
+  - can i make an appointment for next friday?
+  - can i speak to you in private, please?
+  - can we keep this online meeting short and sharp?
+  - can you hold this for me, please?
+  - can you imagine a life without your family?
+  - can you remember all of that?
+  - can you spot the error?
+  - can you tell me more about what's going on?
+  - can you tell me where the nearest hospital is?
+  - can't we just watch something romantic?
+  - congratulations! you truly deserve this!
+  - could you please fill out this form?
+  - could you please take me to this address?
+  - creative activities can boost your mood.
+  - do you dream in english or in thai?
+  - do you have this item in stock?
+  - do you know any good restaurants around here?
+  - do you really think this is fair?
+Sentences in JSON but NOT in Excel: 300
+  - about time we went home.
+  - absolutely remarkable.
+  - am i allowed to take pictures?
+  - are there any good restaurants around here?
+  - are there any things you don't like?
+  - are you a tea or coffee drinker?
+  - are you buying a new phone?
+  - aren't you packed yet?
+  - been a hectic day.
+  - been a productive day.
+  - been a tough week.
+  - been a very difficult day.
+  - break a leg!
+  - can i speak to you in private?
+  - can we watch something romantic?
+  - can you hold this for me?
+  - can you remember?
+  - can you spɑt ðə error?
+  - care for your mental health.
+  - do you fancy any dessert?

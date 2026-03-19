@@ -1,0 +1,10 @@
+Columns: ['ลำดับ', 'English', 'IPA', 'Thai', 'Chinese', 'Pinyin']
+First Row:
+{
+  "ลำดับ": 1,
+  "English": "What happened?",
+  "IPA": "/wɑt ˈhæpənd/",
+  "Thai": "เกิดอะไรขึ้น",
+  "Chinese": "发生什么了？",
+  "Pinyin": "fā shēng shén me le?"
+}

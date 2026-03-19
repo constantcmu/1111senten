@@ -1,0 +1,74 @@
+[
+  {
+    "id": 433,
+    "en": "It's <span>complicated</span>.",
+    "ipa": "/ɪts ˈkɑmplɪˌkeɪtɪd/",
+    "ch": "这很复杂。",
+    "py": "zhè hěn fù zá.",
+    "th": "เรื่องมันซับซ้อน",
+    "group": "General Expressions (ประโยคทั่วไปอื่นๆ)",
+    "key": [
+      "complicated"
+    ]
+  },
+  {
+    "id": 433,
+    "en": "It's <span>complicated</span>.",
+    "ipa": "/ɪts ˈkɑmplɪˌkeɪtɪd/",
+    "ch": "这很复杂。",
+    "py": "zhè hěn fù zá.",
+    "th": "เรื่องมันซับซ้อน",
+    "group": "General Expressions (ประโยคทั่วไปอื่นๆ)",
+    "key": [
+      "complicated"
+    ]
+  },
+  {
+    "id": 1093,
+    "en": "I'm <span>genuinely</span> happy for your success.",
+    "ipa": "/aɪm ˈdʒenjuɪnli ˈhæpi fər jʊər səkˈses/",
+    "ch": "衷心地为你感到高兴。",
+    "py": "zhōng xīn de wèi nǐ gǎn dào gāo xìng.",
+    "th": "ฉันดีใจจริงๆ กับความสำเร็จของเธอ",
+    "group": "Feelings & Emotions (ความรู้สึก อารมณ์)",
+    "key": [
+      "Genuinely"
+    ]
+  },
+  {
+    "id": 888,
+    "en": "I <span>prefer</span> to work late at night.",
+    "ipa": "/aɪ prɪˈfɜr tu wɜrk leɪt æt naɪt/",
+    "ch": "更喜欢在深夜工作。",
+    "py": "gèng xǐ huan zài shēn yè gōng zuò.",
+    "th": "ฉันชอบทำงานดึกๆ มากกว่า",
+    "group": "Daily Life (ชีวิตประจำวัน)",
+    "key": [
+      "Prefer"
+    ]
+  },
+  {
+    "id": 888,
+    "en": "You are more <span>amazing</span> than you realise.",
+    "ipa": "/ju ɑr mɔr əˈmeɪzɪŋ ðæn ju ˈriəlaɪz/",
+    "ch": "比你自己想象的还要出色。",
+    "py": "nǐ bǐ zì jǐ xiǎng xiàng de hái yào chū sè.",
+    "th": "คุณเป็นคนที่น่าทึ่งกว่าที่คุณคิดนะ",
+    "group": "General Expressions (ประโยคทั่วไปอื่นๆ)",
+    "key": [
+      "amazing"
+    ]
+  },
+  {
+    "id": 1093,
+    "en": "I'm <span>genuinely</span> happy for your success.",
+    "ipa": "/aɪm ˈdʒenjuɪnli ˈhæpi fər jʊər səkˈses/",
+    "ch": "衷心地为你感到高兴。",
+    "py": "zhōng xīn de wèi nǐ gǎn dào gāo xìng.",
+    "th": "ฉันดีใจกับความสำเร็จของคุณจากใจจริงนะ",
+    "group": "Feelings & Emotions (ความรู้สึก อารมณ์)",
+    "key": [
+      "Genuinely"
+    ]
+  }
+]
