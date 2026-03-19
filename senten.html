@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -61,7 +62,10 @@
             display: inline-block;
         }
 
-        .stats span { color: var(--primary); font-weight: 600; }
+        .stats span {
+            color: var(--primary);
+            font-weight: 600;
+        }
 
         .controls {
             display: flex;
@@ -69,7 +73,8 @@
             margin: 24px 0;
         }
 
-        input, select {
+        input,
+        select {
             background: #fff;
             border: 1px solid #e2e8f0;
             padding: 10px 16px;
@@ -79,8 +84,14 @@
             transition: all 0.2s;
         }
 
-        input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
-        input { flex: 1; }
+        input:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1);
+        }
+
+        input {
+            flex: 1;
+        }
 
         /* Flashcard Design */
         .flashcard {
@@ -161,13 +172,18 @@
             letter-spacing: 1px;
         }
 
-        .content { flex: 1; }
-        .content span {
-            background: var(--highlight);
-            color: var(--highlight-text);
-            padding: 0 4px;
-            border-radius: 4px;
-            font-weight: 600;
+        .content {
+            flex: 1;
+        }
+
+        .content span,
+        .main-sentence span {
+            font-weight: 800;
+            background: #f8deb6;
+            color: rgb(223, 103, 103);
+            border-bottom: 1px solid #d7f175;
+            padding: 0 3px;
+            border-radius: 3px;
         }
 
         .hint-text {
@@ -203,7 +219,9 @@
             color: white;
         }
 
-        #btnRandom:hover { background: var(--primary-hover); }
+        #btnRandom:hover {
+            background: var(--primary-hover);
+        }
 
         #btnMastered {
             background: #fff;
@@ -217,13 +235,51 @@
             color: var(--success);
         }
 
-        #btnMastered:disabled { opacity: 0.5; cursor: not-allowed; }
+        #btnMastered:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
 
-        .mastered-icon { display: none; }
-        .mastered .mastered-icon { display: inline; }
+        .mastered-icon {
+            display: none;
+        }
 
+        .mastered .mastered-icon {
+            display: inline;
+        }
+
+        .speakable {
+            cursor: pointer;
+            position: relative;
+            padding-right: 24px;
+            transition: opacity 0.2s, background 0.2s;
+            border-radius: 6px;
+        }
+
+        .speakable:hover {
+            opacity: 0.8;
+            background: #f8fafc;
+        }
+
+        .speakable::after {
+            content: '🔊';
+            font-size: 0.85em;
+            position: absolute;
+            right: 4px;
+            top: 50%;
+            transform: translateY(-50%);
+            opacity: 0.15;
+            transition: opacity 0.2s;
+            filter: grayscale(100%);
+        }
+
+        .speakable:hover::after {
+            opacity: 1;
+            filter: none;
+        }
     </style>
 </head>
+
 <body>
 
     <div class="container">
@@ -242,17 +298,18 @@
 
         <div class="flashcard" id="flashcard">
             <div class="status-badge" id="cardStatus">Learning</div>
-            
-            <div id="text-en" class="main-sentence"></div>
+
+            <div id="text-en" class="main-sentence speakable" onclick="if(currentSentence) speakText(currentSentence.en, 'en', event)"></div>
 
             <div class="info-area" id="infoArea">
-                <div class="line"><span class="label">IPA</span> <span id="text-ipa" class="content"></span></div>
-                <div class="line"><span class="label">中文</span> <span id="text-ch" class="content"></span></div>
-                <div class="line"><span class="label">PINYIN</span> <span id="text-py" class="content"></span></div>
+                <div class="line"><span class="label">IPA</span> <span id="text-ipa" class="content speakable" onclick="if(currentSentence) speakText(currentSentence.en, 'en', event)"></span></div>
+                <div class="line"><span class="label">中文</span> <span id="text-ch" class="content speakable" onclick="if(currentSentence) speakText(currentSentence.ch, 'zh', event)"></span></div>
+                <div class="line"><span class="label">PINYIN</span> <span id="text-py" class="content speakable" onclick="if(currentSentence) speakText(currentSentence.ch, 'zh', event)"></span></div>
             </div>
 
             <div class="answer-area hidden" id="answerArea">
-                <div class="line"><span class="label">THAI</span> <span id="text-th" class="content" style="font-weight: 600; color: var(--primary);"></span></div>
+                <div class="line"><span class="label">THAI</span> <span id="text-th" class="content"
+                        style="font-weight: 600; color: var(--primary);"></span></div>
             </div>
 
             <div class="hint-text" id="hintText">Tap to reveal Thai translation</div>
@@ -276,7 +333,7 @@
         } catch (e) {
             masteredIds = [];
         }
-        
+
         let filteredSentences = [];
         let currentSentence = null;
         let isRevealed = false;
@@ -293,25 +350,48 @@
         const hintText = document.getElementById('hintText');
         const cardStatus = document.getElementById('cardStatus');
 
+        // Speech Synthesis Function
+        function speakText(text, lang, e) {
+            if (e) e.stopPropagation(); // ป้องกันไม่ให้การ์ดพลิก
+            if (!('speechSynthesis' in window)) {
+                alert("เบราว์เซอร์ของคุณไม่รองรับการอ่านออกเสียงครับ");
+                return;
+            }
+            
+            window.speechSynthesis.cancel();
+            
+            // ลบ HTML tags ทิ้งเพื่อให้ TTS อ่านแต่ข้อความ
+            const cleanText = text.replace(/<[^>]*>?/gm, '');
+            const utterance = new SpeechSynthesisUtterance(cleanText);
+            
+            if (lang === 'en') {
+                utterance.lang = 'en-US';
+            } else if (lang === 'zh') {
+                utterance.lang = 'zh-CN';
+            }
+            
+            window.speechSynthesis.speak(utterance);
+        }
+
         // Fetch data
         async function loadData() {
             try {
-                const response = await fetch('./data_with_highlights.txt');
+                const response = await fetch('./data_with_highlights.bak.json');
                 if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                 sentences = await response.json();
                 init();
             } catch (error) {
                 console.error("Detailed Error:", error);
-                
+
                 const isLocal = window.location.protocol === 'file:';
                 let errorMsg = "<b>Error loading data.</b><br>";
-                
+
                 if (isLocal) {
                     errorMsg += "<small>⚠️ Browser blocks local files. <br>Please open via <b>Live Server</b> in VS Code.</small>";
                 } else {
                     errorMsg += `<small>${error.message}</small>`;
                 }
-                
+
                 document.getElementById('text-en').innerHTML = errorMsg;
                 document.getElementById('text-en').style.fontSize = "1.2rem";
                 hintText.style.display = 'none';
@@ -324,7 +404,7 @@
             populateGroups();
             updateStats();
             filterData();
-            
+
             elSearch.addEventListener('input', filterData);
             elGroup.addEventListener('change', filterData);
             btnRandom.addEventListener('click', (e) => {
@@ -340,7 +420,7 @@
             // Keyboard support
             window.addEventListener('keydown', (e) => {
                 if (document.activeElement.tagName === 'INPUT') return; // Don't trigger if searching
-                
+
                 if (e.code === 'Space') {
                     e.preventDefault();
                     if (!isRevealed) toggleReveal();
@@ -395,7 +475,13 @@
         function renderCard(sentence) {
             document.getElementById('text-en').innerHTML = sentence.en;
             document.getElementById('text-ipa').innerHTML = sentence.ipa;
-            document.getElementById('text-ch').innerHTML = sentence.ch;
+            const tokens = (sentence.ch || "").replace(/\s+/g, "").match(/<[^>]+>|./gu) || [];
+            const formattedCh = tokens.join(" ")
+                .replace(/\s*(<span[^>]*>)\s*/g, " $1")
+                .replace(/\s*(<\/span>)\s*/g, "$1 ")
+                .replace(/\s+([，。？！.,?!])/g, "$1")
+                .trim();
+            document.getElementById('text-ch').innerHTML = formattedCh;
             document.getElementById('text-py').innerHTML = sentence.py;
             document.getElementById('text-th').innerHTML = sentence.th;
 
@@ -411,7 +497,7 @@
                 btnMastered.disabled = false;
                 btnMastered.textContent = "Mark Mastered";
             }
-            
+
             // Reset reveal state for new card (THAI only)
             answerArea.classList.add('hidden');
             hintText.style.display = 'block';
@@ -432,4 +518,5 @@
         loadData();
     </script>
 </body>
+
 </html>

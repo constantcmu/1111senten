@@ -1,6 +1,6 @@
-
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,7 +13,7 @@
         :root {
             --font-main: 'Prompt', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
         }
-        
+
         body {
             font-family: var(--font-main);
             margin: 0;
@@ -24,7 +24,8 @@
 
         .grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr); /* จัดเป็น 3 คอลัมน์ */
+            grid-template-columns: repeat(2, 1fr);
+            /* จัดเป็น 3 คอลัมน์ */
             gap: 4px;
         }
 
@@ -36,7 +37,7 @@
             /* บังคับไม่ให้การ์ดขาดครึ่งหน้าเวลาขึ้นหน้าใหม่ */
             page-break-inside: avoid;
             break-inside: avoid;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
         }
 
         .header {
@@ -51,8 +52,10 @@
 
         .line {
             display: flex;
-            font-size: 11.5px; /* ลดขนาดตัวอักษรลง */
-            line-height: 1.35; /* ลดระยะห่างบรรทัด */
+            font-size: 11.5px;
+            /* ลดขนาดตัวอักษรลง */
+            line-height: 1.35;
+            /* ลดระยะห่างบรรทัด */
             margin-bottom: 2px;
         }
 
@@ -72,9 +75,9 @@
         /* Keyword Highlight สำหรับตอนปริ้น */
         .content span {
             font-weight: 800;
-            background: #ffeaa7;
-            color: red;
-            border-bottom: 1px solid #fdcb6e;
+            background: #f8deb6;
+            color: rgb(223, 103, 103);
+            border-bottom: 1px solid #d7f175;
             padding: 0 3px;
             border-radius: 3px;
             /* บังคับให้ปริ้นสีพื้นหลังติดมาด้วย */
@@ -83,13 +86,30 @@
         }
 
         @media print {
-            @page { margin: 8mm; } /* บังคับขอบกระดาษให้แคบลงอัตโนมัติ */
-            body { padding: 0; background: #fff; }
-            .grid { gap: 2px; }
-            .card { border: 0.5px solid #999; box-shadow: none; border-radius: 0; padding: 4px; }
+            @page {
+                margin: 8mm;
+            }
+
+            /* บังคับขอบกระดาษให้แคบลงอัตโนมัติ */
+            body {
+                padding: 0;
+                background: #fff;
+            }
+
+            .grid {
+                gap: 2px;
+            }
+
+            .card {
+                border: 0.5px solid #999;
+                box-shadow: none;
+                border-radius: 0;
+                padding: 4px;
+            }
         }
     </style>
 </head>
+
 <body>
 
     <div class="grid" id="printableGrid">
@@ -102,12 +122,18 @@
         // ดึงข้อมูลจากไฟล์แล้วจัดเรียงลงในหน้าเว็บ
         async function loadAndRender() {
             try {
-                const response = await fetch('./data_with_highlights.txt');
+                const response = await fetch('./data_with_highlights.bak.json');
                 const sentences = await response.json();
                 const grid = document.getElementById('printableGrid');
                 grid.innerHTML = ''; // Clear loading text
-                
+
                 sentences.forEach(s => {
+                    const tokens = (s.ch || "").replace(/\s+/g, "").match(/<[^>]+>|./gu) || [];
+                    let formattedCh = tokens.join(" ")
+                        .replace(/\s*(<span[^>]*>)\s*/g, " $1")
+                        .replace(/\s*(<\/span>)\s*/g, "$1 ")
+                        .replace(/\s+([，。？！.,?!])/g, "$1")
+                        .trim();
                     const card = document.createElement('div');
                     card.className = 'card';
                     card.innerHTML = `
@@ -117,7 +143,7 @@
                         </div>
                         <div class="line"><div class="label">ENG:</div><div class="content">${s.en}</div></div>
                         <div class="line"><div class="label">IPA:</div><div class="content">${s.ipa}</div></div>
-                        <div class="line"><div class="label">CHI:</div><div class="content">${s.ch}</div></div>
+                        <div class="line"><div class="label">CHI:</div><div class="content">${formattedCh}</div></div>
                         <div class="line"><div class="label">PY:</div><div class="content">${s.py}</div></div>
                         <div class="line"><div class="label">THAI:</div><div class="content">${s.th}</div></div>
                     `;
@@ -128,7 +154,7 @@
                 setTimeout(() => {
                     window.print();
                 }, 1000);
-                
+
             } catch (error) {
                 console.error("Error loading data:", error);
                 document.getElementById('printableGrid').innerHTML = "<h1>Error: Please open via Live Server</h1>";
@@ -138,4 +164,5 @@
         loadAndRender();
     </script>
 </body>
+
 </html>
