@@ -2062,27 +2062,450 @@
     };
   }
 
-  /**
-   * 4. speakTTS(text, rate = 1.0, onEnd, lang = 'en-US')
-   */
-  function speakTTS(text, rate, onEnd, lang) {
-    var cleanText = stripHtml(text).replace(/\s+/g, ' ').trim();
-    var speed = (typeof rate === 'number' && !isNaN(rate))
-      ? Math.max(0.4, Math.min(2.0, rate))
-      : 1.0;
-    var targetLang = normalizeBcp47(lang);
-    var langFamily = targetLang.split(/[-_]/)[0].toLowerCase();
+  // =========================================================================
+  // 4. Ultra-Natural Google Voice Engine
+  //    Tier 1: Google Gemini 3.8 TTS (Interactions API + WAV Cache)
+  //    Tier 2: Smart Auto-Ranked Natural Browser Voices (Zero API Key)
+  // =========================================================================
 
-    function done() {
-      if (typeof onEnd === 'function') {
+  var VOICE_SETTINGS_STORAGE_KEY = 'elsa_voice_settings';
+  var GEMINI_TTS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
+  var TTS_CACHE_MAX_ITEMS = 80;
+
+  var GEMINI_MODELS = [
+    { id: 'gemini-3.8-flash-tts', label: 'Gemini 3.8 Flash TTS', desc: 'ธรรมชาติสูงสุด (แนะนำ)' },
+    { id: 'gemini-3.8-flash-lite-tts', label: 'Gemini 3.8 Flash Lite TTS', desc: 'เร็วและประหยัดกว่า' }
+  ];
+
+  var GEMINI_VOICES = ['Kore', 'Puck', 'Aoede', 'Zephyr', 'Charon', 'Fenrir'];
+
+  var DEFAULT_VOICE_SETTINGS = {
+    provider: 'browser', // 'browser' | 'gemini'
+    apiKey: '',
+    geminiModel: 'gemini-3.8-flash-tts',
+    geminiVoice: 'Kore',
+    browserVoiceEn: '',
+    browserVoiceZh: ''
+  };
+
+  // In-memory LRU WAV cache: key -> { url: string, blob: Blob }
+  var ttsWavCache = new Map();
+  var activeTtsAudio = null;
+  var speakRequestSeq = 0;
+  var cachedBrowserVoices = [];
+  var voicesListenerAttached = false;
+
+  function safeCallFn(fn) {
+    if (typeof fn === 'function') {
+      var args = Array.prototype.slice.call(arguments, 1);
+      try {
+        fn.apply(null, args);
+      } catch (err) {
+        if (typeof console !== 'undefined' && console.error) {
+          console.error('[ElsaShadowingEngine] voice callback error:', err);
+        }
+      }
+    }
+  }
+
+  function getVoiceSettings() {
+    var merged = Object.assign({}, DEFAULT_VOICE_SETTINGS);
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage.getItem) {
+        var raw = localStorage.getItem(VOICE_SETTINGS_STORAGE_KEY);
+        if (raw) {
+          var parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            if (parsed.provider === 'gemini' || parsed.provider === 'browser') {
+              merged.provider = parsed.provider;
+            }
+            if (typeof parsed.apiKey === 'string') {
+              merged.apiKey = parsed.apiKey.trim();
+            }
+            if (typeof parsed.geminiModel === 'string' &&
+                GEMINI_MODELS.some(function (m) { return m.id === parsed.geminiModel; })) {
+              merged.geminiModel = parsed.geminiModel;
+            }
+            if (typeof parsed.geminiVoice === 'string' &&
+                GEMINI_VOICES.indexOf(parsed.geminiVoice) !== -1) {
+              merged.geminiVoice = parsed.geminiVoice;
+            }
+            if (typeof parsed.browserVoiceEn === 'string') {
+              merged.browserVoiceEn = parsed.browserVoiceEn;
+            }
+            if (typeof parsed.browserVoiceZh === 'string') {
+              merged.browserVoiceZh = parsed.browserVoiceZh;
+            }
+          }
+        }
+      }
+    } catch (e) { /* ignore storage errors */ }
+    return merged;
+  }
+
+  function saveVoiceSettings(patch) {
+    var current = getVoiceSettings();
+    var p = patch && typeof patch === 'object' ? patch : {};
+    var next = Object.assign({}, current);
+
+    if (p.provider === 'gemini' || p.provider === 'browser') {
+      next.provider = p.provider;
+    }
+    if (typeof p.apiKey === 'string') {
+      next.apiKey = p.apiKey.trim();
+    }
+    if (typeof p.geminiModel === 'string' &&
+        GEMINI_MODELS.some(function (m) { return m.id === p.geminiModel; })) {
+      next.geminiModel = p.geminiModel;
+    }
+    if (typeof p.geminiVoice === 'string' &&
+        GEMINI_VOICES.indexOf(p.geminiVoice) !== -1) {
+      next.geminiVoice = p.geminiVoice;
+    }
+    if (typeof p.browserVoiceEn === 'string') {
+      next.browserVoiceEn = p.browserVoiceEn;
+    }
+    if (typeof p.browserVoiceZh === 'string') {
+      next.browserVoiceZh = p.browserVoiceZh;
+    }
+
+    try {
+      if (typeof localStorage !== 'undefined' && localStorage.setItem) {
+        localStorage.setItem(VOICE_SETTINGS_STORAGE_KEY, JSON.stringify(next));
+      }
+    } catch (e) { /* ignore storage errors */ }
+
+    return next;
+  }
+
+  function refreshBrowserVoices() {
+    if (typeof window === 'undefined' || !window.speechSynthesis || !window.speechSynthesis.getVoices) {
+      return cachedBrowserVoices;
+    }
+    var list = window.speechSynthesis.getVoices();
+    if (list && list.length > 0) {
+      cachedBrowserVoices = list;
+    }
+    if (!voicesListenerAttached) {
+      voicesListenerAttached = true;
+      var onChange = function () {
         try {
-          onEnd();
+          var updated = window.speechSynthesis.getVoices();
+          if (updated && updated.length > 0) cachedBrowserVoices = updated;
         } catch (e) { /* ignore */ }
+      };
+      if (typeof window.speechSynthesis.addEventListener === 'function') {
+        window.speechSynthesis.addEventListener('voiceschanged', onChange);
+      } else {
+        window.speechSynthesis.onvoiceschanged = onChange;
+      }
+    }
+    return cachedBrowserVoices;
+  }
+
+  function scoreBrowserVoice(voice, langFamily) {
+    var name = String((voice && voice.name) || '');
+    var vLang = String((voice && voice.lang) || '');
+    var lower = name.toLowerCase();
+    var score = 0;
+
+    if (langFamily === 'zh') {
+      if (/microsoft\s+xiaoxiao.*natural/i.test(name)) score += 140;
+      else if (/microsoft\s+yunxi.*natural/i.test(name)) score += 135;
+      else if (/microsoft\s+xiaoyi.*natural/i.test(name)) score += 130;
+      else if (/google\s*(普通话|國語|中文|mandarin)/i.test(name)) score += 120;
+      else if (/ting-?ting/i.test(name)) score += 105;
+      else if (/mei-?jia/i.test(name)) score += 98;
+      if (/^zh[-_]CN$/i.test(vLang)) score += 25;
+      else if (/^zh[-_]TW$/i.test(vLang)) score += 12;
+    } else {
+      if (/microsoft\s+aria.*natural/i.test(name)) score += 140;
+      else if (/microsoft\s+jenny.*natural/i.test(name)) score += 135;
+      else if (/microsoft\s+guy.*natural/i.test(name)) score += 130;
+      else if (/google\s+us\s+english/i.test(name)) score += 120;
+      else if (/google\s+uk\s+english/i.test(name)) score += 112;
+      else if (/samantha.*enhanced/i.test(name)) score += 108;
+      else if (/daniel.*enhanced/i.test(name)) score += 102;
+      else if (/samantha/i.test(name)) score += 75;
+      if (/^en[-_]US$/i.test(vLang)) score += 25;
+      else if (/^en[-_]GB$/i.test(vLang)) score += 15;
+    }
+
+    var qualityTag = 'Standard';
+    if (/natural|neural/i.test(lower)) {
+      score += 65;
+      qualityTag = 'Natural';
+    } else if (/google/i.test(lower)) {
+      score += 55;
+      qualityTag = 'Google';
+    } else if (/enhanced|premium/i.test(lower)) {
+      score += 48;
+      qualityTag = 'Enhanced';
+    } else if (/online/i.test(lower)) {
+      score += 38;
+      qualityTag = 'Online';
+    }
+
+    if (voice && voice.localService === false) {
+      score += 10;
+    }
+
+    return { score: score, qualityTag: qualityTag };
+  }
+
+  /**
+   * Returns sorted list of natural browser voices for a language (`'en'` | `'zh'` | BCP-47).
+   * Optional `rawVoicesOverride` allows deterministic unit testing in Node.
+   */
+  function getRankedBrowserVoices(lang, rawVoicesOverride) {
+    var targetBcp = normalizeBcp47(lang);
+    var langFamily = targetBcp.split(/[-_]/)[0].toLowerCase();
+    var familyRegex = new RegExp('^' + langFamily + '(?:[-_]|$)', 'i');
+
+    var rawList = Array.isArray(rawVoicesOverride)
+      ? rawVoicesOverride
+      : refreshBrowserVoices();
+
+    var filtered = [];
+    for (var i = 0; i < rawList.length; i++) {
+      var v = rawList[i];
+      if (!v || !v.lang || !familyRegex.test(v.lang)) continue;
+      var meta = scoreBrowserVoice(v, langFamily);
+      filtered.push({
+        name: v.name || '',
+        lang: v.lang || '',
+        voiceURI: v.voiceURI || v.name || '',
+        qualityTag: meta.qualityTag,
+        _score: meta.score,
+        _voiceRef: v
+      });
+    }
+
+    filtered.sort(function (a, b) {
+      if (b._score !== a._score) return b._score - a._score;
+      return a.name.localeCompare(b.name);
+    });
+
+    return filtered.map(function (item) {
+      return {
+        name: item.name,
+        lang: item.lang,
+        voiceURI: item.voiceURI,
+        qualityTag: item.qualityTag
+      };
+    });
+  }
+
+  function findBestBrowserVoiceObject(lang, preferredUriOrName) {
+    var targetBcp = normalizeBcp47(lang);
+    var langFamily = targetBcp.split(/[-_]/)[0].toLowerCase();
+    var familyRegex = new RegExp('^' + langFamily + '(?:[-_]|$)', 'i');
+    var rawList = refreshBrowserVoices();
+    if (!rawList || rawList.length === 0) return null;
+
+    if (preferredUriOrName) {
+      var exact = rawList.find(function (v) {
+        return v.voiceURI === preferredUriOrName || v.name === preferredUriOrName;
+      });
+      if (exact) return exact;
+    }
+
+    var bestVoice = null;
+    var bestScore = -1;
+    for (var i = 0; i < rawList.length; i++) {
+      var v = rawList[i];
+      if (!v || !v.lang || !familyRegex.test(v.lang)) continue;
+      var s = scoreBrowserVoice(v, langFamily).score;
+      if (s > bestScore) {
+        bestScore = s;
+        bestVoice = v;
+      }
+    }
+    return bestVoice;
+  }
+
+  function buildTtsCacheKey(model, voice, lang, cleanText, isSlow) {
+    var base = String(model || 'gemini-3.8-flash-tts') + '|' +
+      String(voice || 'Kore') + '|' +
+      normalizeBcp47(lang) + '|' +
+      String(cleanText || '');
+    return isSlow ? (base + '|slow') : base;
+  }
+
+  function putTtsCache(key, entry) {
+    if (ttsWavCache.has(key)) {
+      ttsWavCache.delete(key);
+    } else if (ttsWavCache.size >= TTS_CACHE_MAX_ITEMS) {
+      var oldestKey = ttsWavCache.keys().next().value;
+      var oldestVal = ttsWavCache.get(oldestKey);
+      ttsWavCache.delete(oldestKey);
+      if (oldestVal && oldestVal.url && typeof URL !== 'undefined' && URL.revokeObjectURL) {
+        try { URL.revokeObjectURL(oldestVal.url); } catch (e) { /* ignore */ }
+      }
+    }
+    ttsWavCache.set(key, entry);
+  }
+
+  function buildGeminiTtsPayload(cleanText, opts) {
+    var o = opts || {};
+    var model = o.model || 'gemini-3.8-flash-tts';
+    var voice = o.voice || 'Kore';
+    var lang = normalizeBcp47(o.lang);
+    var isZh = /^zh/i.test(lang);
+    var isSlow = typeof o.rate === 'number' && o.rate < 0.9;
+
+    var style;
+    if (isSlow) {
+      style = isZh
+        ? 'speak slowly and very clearly in natural Mandarin Chinese for a language learner'
+        : 'speak slowly and very clearly for a language learner';
+    } else {
+      style = isZh
+        ? 'speak warmly and naturally in clear Mandarin Chinese like a friendly pronunciation coach'
+        : 'speak warmly and naturally in clear American English like a friendly pronunciation coach';
+    }
+
+    return {
+      model: model,
+      input: [{
+        type: 'user_input',
+        content: [{
+          type: 'text',
+          text: cleanText,
+          annotations: [{
+            type: 'speech_metadata',
+            style: style
+          }]
+        }]
+      }],
+      response_format: { type: 'audio' },
+      generation_config: {
+        speech_config: [{ voice: voice }]
+      }
+    };
+  }
+
+  /**
+   * Extract base64 audio data from Gemini Interactions API response.
+   * Supports `steps` (type === 'model_output' -> last audio content), `output_audio`, and `outputs`.
+   */
+  function extractGeminiAudioFromResponse(json) {
+    if (!json || typeof json !== 'object') return null;
+
+    if (Array.isArray(json.steps)) {
+      for (var s = json.steps.length - 1; s >= 0; s--) {
+        var step = json.steps[s];
+        if (!step || step.type !== 'model_output' || !Array.isArray(step.content)) continue;
+        for (var c = step.content.length - 1; c >= 0; c--) {
+          var item = step.content[c];
+          if (item && item.type === 'audio' && typeof item.data === 'string' && item.data.length > 0) {
+            return {
+              base64: item.data,
+              mimeType: item.mime_type || item.mimeType || 'audio/wav'
+            };
+          }
+        }
       }
     }
 
+    if (json.output_audio && typeof json.output_audio.data === 'string' && json.output_audio.data.length > 0) {
+      return {
+        base64: json.output_audio.data,
+        mimeType: json.output_audio.mime_type || json.output_audio.mimeType || 'audio/wav'
+      };
+    }
+
+    if (Array.isArray(json.outputs)) {
+      for (var k = json.outputs.length - 1; k >= 0; k--) {
+        var outItem = json.outputs[k];
+        if (outItem && outItem.type === 'audio' && typeof outItem.data === 'string' && outItem.data.length > 0) {
+          return {
+            base64: outItem.data,
+            mimeType: outItem.mime_type || outItem.mimeType || 'audio/wav'
+          };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function base64ToBlob(base64Str, mimeType) {
+    var cleanB64 = String(base64Str || '').replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, '');
+    if (typeof atob === 'function') {
+      var binary = atob(cleanB64);
+      var len = binary.length;
+      var bytes = new Uint8Array(len);
+      for (var i = 0; i < len; i++) {
+        bytes[i] = binary.charCodeAt(i);
+      }
+      return new Blob([bytes], { type: mimeType || 'audio/wav' });
+    }
+    if (typeof Buffer !== 'undefined') {
+      var buf = Buffer.from(cleanB64, 'base64');
+      return new Blob([buf], { type: mimeType || 'audio/wav' });
+    }
+    throw new Error('Base64 decoder unavailable');
+  }
+
+  function stopSpeaking() {
+    speakRequestSeq++;
+    if (activeTtsAudio) {
+      try {
+        activeTtsAudio.pause();
+        activeTtsAudio.currentTime = 0;
+      } catch (e) { /* ignore */ }
+      activeTtsAudio = null;
+    }
+    if (typeof window !== 'undefined' && window.speechSynthesis && typeof window.speechSynthesis.cancel === 'function') {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) { /* ignore */ }
+    }
+  }
+
+  function playCachedAudioUrl(url, playbackRate, reqId, opts) {
+    if (reqId !== speakRequestSeq) return;
+    if (typeof Audio === 'undefined') {
+      safeCallFn(opts.onEnd);
+      return;
+    }
+
+    var audio = new Audio(url);
+    activeTtsAudio = audio;
+    var rate = (typeof playbackRate === 'number' && !isNaN(playbackRate))
+      ? Math.max(0.5, Math.min(2.0, playbackRate))
+      : 1.0;
+    audio.playbackRate = rate;
+    if ('preservesPitch' in audio) audio.preservesPitch = true;
+    if ('mozPreservesPitch' in audio) audio.mozPreservesPitch = true;
+    if ('webkitPreservesPitch' in audio) audio.webkitPreservesPitch = true;
+
+    var finished = false;
+    function finish() {
+      if (finished) return;
+      finished = true;
+      if (activeTtsAudio === audio) activeTtsAudio = null;
+      safeCallFn(opts.onEnd);
+    }
+
+    audio.onended = finish;
+    audio.onerror = finish;
+
+    safeCallFn(opts.onProviderUsed, 'gemini');
+    safeCallFn(opts.onStart);
+    var p = audio.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(finish);
+    }
+  }
+
+  function speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings) {
+    if (reqId !== speakRequestSeq) return;
+
     if (!cleanText || typeof window === 'undefined' || !window.speechSynthesis || typeof SpeechSynthesisUtterance === 'undefined') {
-      done();
+      safeCallFn(opts.onProviderUsed, 'browser');
+      safeCallFn(opts.onEnd);
       return;
     }
 
@@ -2092,35 +2515,170 @@
       utterance.lang = targetLang;
       utterance.rate = speed;
 
-      var voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
-      if (voices && voices.length > 0) {
-        var exactRegex = new RegExp('^' + targetLang.replace('-', '[-_]'), 'i');
-        var familyRegex = new RegExp('^' + langFamily, 'i');
-        var matchedVoice = voices.find(function (v) { return exactRegex.test(v.lang); }) ||
-          voices.find(function (v) { return familyRegex.test(v.lang); });
-        if (matchedVoice) utterance.voice = matchedVoice;
-      }
+      var isZh = /^zh/i.test(targetLang);
+      var preferred = isZh ? settings.browserVoiceZh : settings.browserVoiceEn;
+      var bestVoice = findBestBrowserVoiceObject(targetLang, preferred);
+      if (bestVoice) utterance.voice = bestVoice;
 
       var finished = false;
       function onFinish() {
         if (finished) return;
         finished = true;
-        done();
+        safeCallFn(opts.onEnd);
       }
+      utterance.onstart = function () {
+        if (reqId !== speakRequestSeq) return;
+        safeCallFn(opts.onStart);
+      };
       utterance.onend = onFinish;
       utterance.onerror = onFinish;
 
+      safeCallFn(opts.onProviderUsed, 'browser');
       window.speechSynthesis.speak(utterance);
     } catch (err) {
-      done();
+      safeCallFn(opts.onEnd);
     }
+  }
+
+  /**
+   * Primary ultra-natural speech API:
+   * Uses Google Gemini 3.8 TTS when configured + cached WAV playback,
+   * and falls back automatically to Tier 2 Auto-Ranked Natural Browser Voices.
+   */
+  function speakNatural(text, options) {
+    var opts = options || {};
+    var cleanText = stripHtml(text).replace(/\s+/g, ' ').trim();
+    var speed = (typeof opts.rate === 'number' && !isNaN(opts.rate))
+      ? Math.max(0.4, Math.min(2.0, opts.rate))
+      : 1.0;
+    var targetLang = normalizeBcp47(opts.lang);
+
+    stopSpeaking();
+    var reqId = speakRequestSeq;
+
+    if (!cleanText) {
+      safeCallFn(opts.onEnd);
+      return;
+    }
+
+    var settings = getVoiceSettings();
+    var useGemini = settings.provider === 'gemini' &&
+      Boolean(settings.apiKey) &&
+      typeof fetch === 'function' &&
+      typeof URL !== 'undefined' &&
+      typeof Blob !== 'undefined';
+
+    if (!useGemini) {
+      speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings);
+      return;
+    }
+
+    var isSlow = speed < 0.9;
+    var normalKey = buildTtsCacheKey(settings.geminiModel, settings.geminiVoice, targetLang, cleanText, false);
+    var slowKey = buildTtsCacheKey(settings.geminiModel, settings.geminiVoice, targetLang, cleanText, true);
+
+    // 1. Check cache: if slow requested and normal WAV is already cached, play with preservesPitch at 0.72x!
+    if (isSlow && ttsWavCache.has(normalKey)) {
+      var cachedNormal = ttsWavCache.get(normalKey);
+      playCachedAudioUrl(cachedNormal.url, 0.72, reqId, opts);
+      return;
+    }
+    var targetKey = isSlow ? slowKey : normalKey;
+    if (ttsWavCache.has(targetKey)) {
+      var cached = ttsWavCache.get(targetKey);
+      playCachedAudioUrl(cached.url, 1.0, reqId, opts);
+      return;
+    }
+
+    // 2. Call Google Gemini 3.8 TTS Interactions API
+    var payload = buildGeminiTtsPayload(cleanText, {
+      model: settings.geminiModel,
+      voice: settings.geminiVoice,
+      lang: targetLang,
+      rate: speed
+    });
+
+    safeCallFn(opts.onVoiceStatus, 'loading', 'กำลังสร้างเสียง AI...');
+
+    fetch(GEMINI_TTS_ENDPOINT, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': settings.apiKey
+      },
+      body: JSON.stringify(payload)
+    })
+      .then(function (resp) {
+        if (!resp.ok) {
+          return resp.text().then(function (bodyText) {
+            var errMsg = 'Gemini TTS HTTP ' + resp.status;
+            if (resp.status === 401 || resp.status === 403) {
+              errMsg = 'API Key ไม่ถูกต้องหรือไม่มีสิทธิ์ใช้งาน Gemini TTS';
+            } else if (resp.status === 429) {
+              errMsg = 'เกินโควต้า Gemini API ชั่วคราว — สลับเป็นเสียงเบราว์เซอร์อัตโนมัติ';
+            } else if (bodyText) {
+              errMsg = errMsg + ': ' + bodyText.slice(0, 120);
+            }
+            throw new Error(errMsg);
+          });
+        }
+        return resp.json();
+      })
+      .then(function (json) {
+        if (reqId !== speakRequestSeq) return;
+        var audioInfo = extractGeminiAudioFromResponse(json);
+        if (!audioInfo || !audioInfo.base64) {
+          throw new Error('ไม่พบข้อมูลเสียงในคำตอบจาก Gemini TTS');
+        }
+        var blob = base64ToBlob(audioInfo.base64, audioInfo.mimeType);
+        var url = URL.createObjectURL(blob);
+        putTtsCache(targetKey, { url: url, blob: blob });
+        safeCallFn(opts.onVoiceStatus, 'ready', 'Gemini AI Voice');
+        playCachedAudioUrl(url, 1.0, reqId, opts);
+      })
+      .catch(function (err) {
+        if (reqId !== speakRequestSeq) return;
+        var msg = (err && err.message) ? err.message : 'ไม่สามารถเชื่อมต่อ Gemini TTS ได้';
+        safeCallFn(opts.onVoiceStatus, 'fallback', msg);
+        safeCallFn(opts.onError, msg);
+        // Seamless automatic fallback to Tier 2 Natural Browser Voice
+        speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings);
+      });
+  }
+
+  /**
+   * 5. speakTTS(text, rate = 1.0, onEnd, lang = 'en-US')
+   * Delegates cleanly to `speakNatural` for seamless Gemini + Natural Browser support.
+   */
+  function speakTTS(text, rate, onEnd, lang) {
+    speakNatural(text, {
+      rate: rate,
+      lang: lang,
+      onEnd: onEnd
+    });
+  }
+
+  // Warm up browser voice list if in browser
+  if (typeof window !== 'undefined' && window.speechSynthesis) {
+    refreshBrowserVoices();
   }
 
   var ElsaShadowingEngine = {
     preparePrompt: preparePrompt,
     evaluateSpeech: evaluateSpeech,
     createRecorder: createRecorder,
-    speakTTS: speakTTS
+    speakTTS: speakTTS,
+    speakNatural: speakNatural,
+    stopSpeaking: stopSpeaking,
+    getVoiceSettings: getVoiceSettings,
+    saveVoiceSettings: saveVoiceSettings,
+    getRankedBrowserVoices: getRankedBrowserVoices,
+    GEMINI_VOICES: GEMINI_VOICES.slice(),
+    GEMINI_MODELS: GEMINI_MODELS.map(function (m) { return Object.assign({}, m); }),
+    // Testable helpers for unit verification
+    _buildGeminiTtsPayload: buildGeminiTtsPayload,
+    _extractGeminiAudioFromResponse: extractGeminiAudioFromResponse,
+    _buildTtsCacheKey: buildTtsCacheKey
   };
 
   if (typeof window !== 'undefined') {
