@@ -384,6 +384,7 @@
             let elsaIsRecording = false;
             let elsaRecorder = null;
             let toastTimer = null;
+            let speakSafetyTimer = null;
 
             function loadSavedLang() {
                 try {
@@ -833,6 +834,8 @@
                         window.ElsaShadowingEngine.stopSpeaking();
                     }
                     clearSpeakButtonStates();
+                    const btnPlayUser = document.getElementById('elsaBtnPlayUser');
+                    if (btnPlayUser) btnPlayUser.classList.remove('playing');
                     setInterimMessage('', false);
                     elsaMicState = 'starting';
                     elsaIsRecording = true;
@@ -869,6 +872,10 @@
             // Ultra-Natural Google Voice Playback (Tier 1 Gemini + Tier 2 Natural)
             // =================================================================
             function clearSpeakButtonStates() {
+                if (speakSafetyTimer) {
+                    clearTimeout(speakSafetyTimer);
+                    speakSafetyTimer = null;
+                }
                 const btnNorm = document.getElementById('elsaBtnSpeakNormal');
                 const btnSlow = document.getElementById('elsaBtnSpeakSlow');
                 btnNorm.classList.remove('loading', 'playing');
@@ -890,6 +897,9 @@
 
                 if (willUseGemini) {
                     buttonEl.classList.add('loading');
+                    speakSafetyTimer = setTimeout(() => {
+                        buttonEl.classList.remove('loading', 'playing');
+                    }, 12000);
                 } else {
                     buttonEl.classList.add('playing');
                 }
@@ -898,16 +908,28 @@
                     rate: rate,
                     lang: getBcp47(),
                     onStart: () => {
+                        if (speakSafetyTimer) {
+                            clearTimeout(speakSafetyTimer);
+                            speakSafetyTimer = null;
+                        }
                         buttonEl.classList.remove('loading');
                         buttonEl.classList.add('playing');
                     },
                     onEnd: () => {
+                        if (speakSafetyTimer) {
+                            clearTimeout(speakSafetyTimer);
+                            speakSafetyTimer = null;
+                        }
                         buttonEl.classList.remove('loading', 'playing');
                     },
                     onVoiceStatus: (statusMsg) => {
                         if (statusMsg) showToast(statusMsg, 3800);
                     },
                     onError: (msg) => {
+                        if (speakSafetyTimer) {
+                            clearTimeout(speakSafetyTimer);
+                            speakSafetyTimer = null;
+                        }
                         buttonEl.classList.remove('loading', 'playing');
                         if (msg) showToast(msg, 3800);
                     }
@@ -1151,7 +1173,7 @@
                             evaluateAndRender(finalTranscript, alternatives || []);
                         },
                         onAudioReady: (audioUrl) => {
-                            if (audioUrl) {
+                            if (audioUrl && elsaLastResult) {
                                 document.getElementById('elsaBtnPlayUser').classList.remove('hidden');
                             }
                         },
@@ -1174,9 +1196,17 @@
                     });
                 }
 
-                // Refresh natural browser voices when Chrome finishes loading them
-                if (window.speechSynthesis && window.speechSynthesis.onvoiceschanged !== undefined) {
-                    window.speechSynthesis.onvoiceschanged = populateBrowserVoiceDropdowns;
+                // Refresh natural browser voices when Chrome finishes loading them (without overwriting engine listener)
+                if (window.speechSynthesis) {
+                    if (typeof window.speechSynthesis.addEventListener === 'function') {
+                        window.speechSynthesis.addEventListener('voiceschanged', populateBrowserVoiceDropdowns);
+                    } else if (window.speechSynthesis.onvoiceschanged !== undefined) {
+                        const prevVoicesHandler = window.speechSynthesis.onvoiceschanged;
+                        window.speechSynthesis.onvoiceschanged = function (ev) {
+                            if (typeof prevVoicesHandler === 'function') prevVoicesHandler.call(this, ev);
+                            populateBrowserVoiceDropdowns();
+                        };
+                    }
                 }
 
                 // Topbar triggers

@@ -1748,6 +1748,8 @@
     var cbs = callbacks || {};
 
     var recognition = null;
+    var recognitionActive = false;
+    var stopFallbackTimer = null;
     var mediaRecorder = null;
     var mediaStream = null;
     var audioChunks = [];
@@ -1760,6 +1762,24 @@
     var sessionSeq = 0;
     var mediaCaptureDisabled = false;
     var mediaCaptureStartedForSession = false;
+    var currentEmitEndOnce = null;
+
+    function clearStopFallbackTimer() {
+      if (stopFallbackTimer) {
+        clearTimeout(stopFallbackTimer);
+        stopFallbackTimer = null;
+      }
+    }
+
+    function stopUserAudioPlayback() {
+      if (activeAudioEl) {
+        try {
+          activeAudioEl.pause();
+          activeAudioEl.currentTime = 0;
+        } catch (e) { /* ignore */ }
+        activeAudioEl = null;
+      }
+    }
 
     function getSpeechRecognitionCtor() {
       if (typeof window === 'undefined') return null;
@@ -1797,14 +1817,21 @@
       }
     }
 
-    function stopMediaRecorder() {
+    function stopMediaRecorder(immediateRelease) {
       if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        var mr = mediaRecorder;
         try {
-          mediaRecorder.stop();
+          mr.stop();
         } catch (e) {
+          stopMediaTracks();
+          mediaRecorder = null;
+        }
+        // Always release mic hardware tracks promptly if requested (e.g. before starting a new attempt)
+        if (immediateRelease) {
           stopMediaTracks();
         }
       } else {
+        mediaRecorder = null;
         stopMediaTracks();
       }
     }
@@ -1839,6 +1866,7 @@
             stream.getTracks().forEach(function (t) { t.stop(); });
             return;
           }
+          stopMediaTracks();
           mediaStream = stream;
           audioChunks = [];
 
@@ -1858,8 +1886,9 @@
             }
           }
 
+          var mr;
           try {
-            mediaRecorder = options.mimeType
+            mr = options.mimeType
               ? new MediaRecorder(stream, options)
               : new MediaRecorder(stream);
           } catch (err) {
@@ -1867,33 +1896,43 @@
             stopMediaTracks();
             return;
           }
+          mediaRecorder = mr;
 
-          mediaRecorder.ondataavailable = function (ev) {
+          mr.ondataavailable = function (ev) {
             if (ev.data && ev.data.size > 0) {
               audioChunks.push(ev.data);
             }
           };
 
-          mediaRecorder.onstop = function () {
-            stopMediaTracks();
-            if (audioChunks.length > 0 && typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
-              var mimeType = (mediaRecorder && mediaRecorder.mimeType) || 'audio/webm';
+          mr.onstop = function () {
+            // Always release stream tracks when MediaRecorder stops
+            try {
+              stream.getTracks().forEach(function (t) { t.stop(); });
+            } catch (e) { /* ignore */ }
+            if (mediaStream === stream) mediaStream = null;
+            if (mediaRecorder === mr) mediaRecorder = null;
+
+            // Only publish audio if no newer recording session has started
+            if (mySession === sessionSeq && audioChunks.length > 0 && typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
+              var mimeType = mr.mimeType || 'audio/webm';
               var blob = new Blob(audioChunks, { type: mimeType });
               revokeLastAudio();
               lastAudioUrl = URL.createObjectURL(blob);
               safeCall(cbs.onAudioReady, lastAudioUrl);
             }
             audioChunks = [];
-            mediaRecorder = null;
           };
 
-          mediaRecorder.onerror = function () {
+          mr.onerror = function () {
             mediaCaptureDisabled = true;
-            stopMediaTracks();
-            mediaRecorder = null;
+            try {
+              stream.getTracks().forEach(function (t) { t.stop(); });
+            } catch (e) { /* ignore */ }
+            if (mediaStream === stream) mediaStream = null;
+            if (mediaRecorder === mr) mediaRecorder = null;
           };
 
-          mediaRecorder.start();
+          mr.start();
         })
         .catch(function () {
           // Gracefully degrade: SpeechRecognition still works even if MediaRecorder/mic capture fails
@@ -1922,6 +1961,7 @@
       var SpeechRecognitionCtor = getSpeechRecognitionCtor();
       if (!SpeechRecognitionCtor) {
         isRecording = false;
+        recognitionActive = false;
         safeCall(
           cbs.onError,
           'not-supported',
@@ -1931,25 +1971,35 @@
         return false;
       }
 
-      // Stop any active TTS playback before opening microphone
-      stopSpeaking();
+      clearStopFallbackTimer();
 
-      // Cleanly abort any prior recognition instance before starting a new session
+      // Stop any active TTS or user audio playback before opening microphone
+      stopSpeaking();
+      stopUserAudioPlayback();
+
+      // Only abort an older recognition instance if it is genuinely still active!
+      // Calling abort() on an already-ending instance in Chrome can cancel the NEW instance.
       if (recognition) {
         var oldRec = recognition;
+        var wasActive = recognitionActive;
         recognition = null;
+        recognitionActive = false;
         detachRecognition(oldRec);
-        try {
-          oldRec.abort();
-        } catch (e) { /* ignore */ }
+        if (wasActive) {
+          try {
+            oldRec.abort();
+          } catch (e) { /* ignore */ }
+        }
       }
-      stopMediaRecorder();
+      // Release any lingering MediaStream tracks immediately so mic is free for this attempt
+      stopMediaRecorder(true);
 
       var mySession = ++sessionSeq;
       var endedEmitted = false;
       var retryingWithoutMedia = false;
 
       isRecording = true;
+      recognitionActive = true;
       receivedFinalResult = false;
       lastInterimTranscript = '';
       mediaCaptureStartedForSession = false;
@@ -1957,10 +2007,16 @@
       function emitEndOnce() {
         if (endedEmitted) return;
         endedEmitted = true;
-        isRecording = false;
-        stopMediaRecorder();
+        clearStopFallbackTimer();
+        if (mySession === sessionSeq) {
+          isRecording = false;
+          recognitionActive = false;
+          if (currentEmitEndOnce === emitEndOnce) currentEmitEndOnce = null;
+        }
+        stopMediaRecorder(false);
         safeCall(cbs.onEnd);
       }
+      currentEmitEndOnce = emitEndOnce;
 
       var rec = new SpeechRecognitionCtor();
       recognition = rec;
@@ -2025,9 +2081,12 @@
         if (!isRetryWithoutMedia && mediaCaptureStartedForSession && (code === 'audio-capture' || code === 'aborted')) {
           mediaCaptureDisabled = true;
           retryingWithoutMedia = true;
-          stopMediaRecorder();
+          stopMediaRecorder(true);
           detachRecognition(rec);
-          if (recognition === rec) recognition = null;
+          if (recognition === rec) {
+            recognition = null;
+            recognitionActive = false;
+          }
           startInternal(true);
           return;
         }
@@ -2046,10 +2105,13 @@
 
       rec.onend = function () {
         if (mySession !== sessionSeq || retryingWithoutMedia) return;
-        if (recognition === rec) recognition = null;
+        if (recognition === rec) {
+          recognition = null;
+          recognitionActive = false;
+        }
         var hadInterimOnly = !receivedFinalResult && Boolean(lastInterimTranscript);
         isRecording = false;
-        stopMediaRecorder();
+        stopMediaRecorder(false);
         if (hadInterimOnly) {
           receivedFinalResult = true;
           safeCall(cbs.onResult, lastInterimTranscript, [lastInterimTranscript]);
@@ -2063,7 +2125,10 @@
         return true;
       } catch (err) {
         detachRecognition(rec);
-        if (recognition === rec) recognition = null;
+        if (recognition === rec) {
+          recognition = null;
+          recognitionActive = false;
+        }
         safeCall(cbs.onError, 'start-failed', 'ไม่สามารถเริ่มการฟังเสียงได้ กรุณาลองกดไมโครโฟนอีกครั้ง');
         emitEndOnce();
         return false;
@@ -2079,12 +2144,31 @@
 
     function stop() {
       isRecording = false;
-      if (recognition) {
+      var activeRec = recognition;
+      var emitEnd = currentEmitEndOnce;
+      if (activeRec && recognitionActive) {
+        recognitionActive = false;
         try {
-          recognition.stop();
+          activeRec.stop();
         } catch (e) { /* ignore */ }
+        // Safety net: if the browser swallows onend after stop(), cleanly finalize within 300ms
+        clearStopFallbackTimer();
+        var stopSession = sessionSeq;
+        stopFallbackTimer = setTimeout(function () {
+          stopFallbackTimer = null;
+          if (stopSession === sessionSeq) {
+            if (recognition === activeRec) {
+              detachRecognition(activeRec);
+              recognition = null;
+            }
+            if (typeof emitEnd === 'function') emitEnd();
+          }
+        }, 300);
+      } else {
+        recognition = null;
+        recognitionActive = false;
       }
-      stopMediaRecorder();
+      stopMediaRecorder(false);
     }
 
     function getLastAudioUrl() {
@@ -2176,6 +2260,8 @@
   // In-memory LRU WAV cache: key -> { url: string, blob: Blob }
   var ttsWavCache = new Map();
   var activeTtsAudio = null;
+  var activeUtterance = null;
+  var pendingSpeakTimer = null;
   var speakRequestSeq = 0;
   var cachedBrowserVoices = [];
   var voicesListenerAttached = false;
@@ -2714,6 +2800,10 @@
 
   function stopSpeaking() {
     speakRequestSeq++;
+    if (pendingSpeakTimer) {
+      clearTimeout(pendingSpeakTimer);
+      pendingSpeakTimer = null;
+    }
     if (activeTtsAudio) {
       try {
         activeTtsAudio.pause();
@@ -2721,11 +2811,18 @@
       } catch (e) { /* ignore */ }
       activeTtsAudio = null;
     }
+    var didCancelSynth = false;
     if (typeof window !== 'undefined' && window.speechSynthesis && typeof window.speechSynthesis.cancel === 'function') {
-      try {
-        window.speechSynthesis.cancel();
-      } catch (e) { /* ignore */ }
+      var synth = window.speechSynthesis;
+      if (synth.speaking || synth.pending || activeUtterance) {
+        try {
+          synth.cancel();
+          didCancelSynth = true;
+        } catch (e) { /* ignore */ }
+      }
     }
+    activeUtterance = null;
+    return didCancelSynth;
   }
 
   function playCachedAudioUrl(url, playbackRate, reqId, opts) {
@@ -2764,7 +2861,7 @@
     }
   }
 
-  function speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings) {
+  function speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, justCanceledSynth) {
     if (reqId !== speakRequestSeq) return;
 
     if (!cleanText || typeof window === 'undefined' || !window.speechSynthesis || typeof SpeechSynthesisUtterance === 'undefined') {
@@ -2773,34 +2870,64 @@
       return;
     }
 
-    try {
-      window.speechSynthesis.cancel();
-      var utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.lang = targetLang;
-      utterance.rate = speed;
+    var synth = window.speechSynthesis;
 
-      var isZh = /^zh/i.test(targetLang);
-      var preferred = isZh ? settings.browserVoiceZh : settings.browserVoiceEn;
-      var bestVoice = findBestBrowserVoiceObject(targetLang, preferred);
-      if (bestVoice) utterance.voice = bestVoice;
+    function doSpeak() {
+      if (reqId !== speakRequestSeq) return;
+      try {
+        var utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.lang = targetLang;
+        utterance.rate = speed;
 
-      var finished = false;
-      function onFinish() {
-        if (finished) return;
-        finished = true;
+        var isZh = /^zh/i.test(targetLang);
+        var preferred = isZh ? settings.browserVoiceZh : settings.browserVoiceEn;
+        var bestVoice = findBestBrowserVoiceObject(targetLang, preferred);
+        if (bestVoice) utterance.voice = bestVoice;
+
+        // Hold reference at module scope to prevent Chrome GC from dropping onend/audio mid-speech
+        activeUtterance = utterance;
+
+        var finished = false;
+        function onFinish() {
+          if (finished) return;
+          finished = true;
+          if (activeUtterance === utterance) activeUtterance = null;
+          safeCallFn(opts.onEnd);
+        }
+        utterance.onstart = function () {
+          if (reqId !== speakRequestSeq) return;
+          safeCallFn(opts.onStart);
+        };
+        utterance.onend = onFinish;
+        utterance.onerror = onFinish;
+
+        if (synth.paused && typeof synth.resume === 'function') {
+          try { synth.resume(); } catch (e) { /* ignore */ }
+        }
+        safeCallFn(opts.onProviderUsed, 'browser');
+        synth.speak(utterance);
+      } catch (err) {
+        activeUtterance = null;
         safeCallFn(opts.onEnd);
       }
-      utterance.onstart = function () {
-        if (reqId !== speakRequestSeq) return;
-        safeCallFn(opts.onStart);
-      };
-      utterance.onend = onFinish;
-      utterance.onerror = onFinish;
+    }
 
-      safeCallFn(opts.onProviderUsed, 'browser');
-      window.speechSynthesis.speak(utterance);
-    } catch (err) {
-      safeCallFn(opts.onEnd);
+    // Avoid Chrome's silent-drop bug when cancel() is immediately followed by speak()
+    var needDelay = Boolean(justCanceledSynth);
+    if (!needDelay && (synth.speaking || synth.pending)) {
+      try {
+        synth.cancel();
+        needDelay = true;
+      } catch (e) { /* ignore */ }
+    }
+
+    if (needDelay) {
+      pendingSpeakTimer = setTimeout(function () {
+        pendingSpeakTimer = null;
+        doSpeak();
+      }, 65);
+    } else {
+      doSpeak();
     }
   }
 
@@ -2817,7 +2944,7 @@
       : 1.0;
     var targetLang = normalizeBcp47(opts.lang);
 
-    stopSpeaking();
+    var justCanceledSynth = stopSpeaking();
     var reqId = speakRequestSeq;
 
     if (!cleanText) {
@@ -2833,7 +2960,7 @@
       typeof Blob !== 'undefined';
 
     if (!useGemini) {
-      speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings);
+      speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, justCanceledSynth);
       return;
     }
 
