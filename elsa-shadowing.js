@@ -76,6 +76,53 @@
     '18': 'eighteen', '19': 'nineteen', '20': 'twenty'
   };
 
+  // Chinese digit <-> Hanzi mapping for ASR normalization (e.g. 5 <-> 五, 2 <-> 二/两)
+  const ZH_DIGIT_TO_HANZI = {
+    '0': ['零', '〇'], '1': ['一', '幺'], '2': ['二', '两'], '3': ['三'],
+    '4': ['四'], '5': ['五'], '6': ['六'], '7': ['七'], '8': ['八'],
+    '9': ['九'], '10': ['十']
+  };
+  const ZH_HANZI_TO_DIGIT = {
+    '零': '0', '〇': '0', '一': '1', '幺': '1', '二': '2', '两': '2', '兩': '2',
+    '三': '3', '四': '4', '五': '5', '六': '6', '七': '7', '八': '8', '九': '9', '十': '10'
+  };
+
+  function isCjkChar(ch) {
+    return /[\u4e00-\u9fff\u3400-\u4dbf]/.test(ch);
+  }
+
+  function stripPinyinTones(str) {
+    if (!str) return '';
+    return String(str)
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/ü/gi, 'v')
+      .replace(/[1-5]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '');
+  }
+
+  function normalizePinyinSyllable(str) {
+    var s = stripPinyinTones(str);
+    // Treat lu/lv, nu/nv, ju/jv, qu/qv, xu/xv, yu/yv consistently
+    s = s.replace(/^([jqxy])v/, '$1u');
+    return s;
+  }
+
+  function normalizeBcp47(lang) {
+    if (!lang || typeof lang !== 'string') return 'en-US';
+    var l = lang.trim();
+    if (!l) return 'en-US';
+    if (/^zh$/i.test(l)) return 'zh-CN';
+    if (/^en$/i.test(l)) return 'en-US';
+    return l;
+  }
+
+  function normalizeEngineLang(lang) {
+    if (typeof lang === 'string' && /^zh/i.test(lang.trim())) return 'zh';
+    return 'en';
+  }
+
   // Common English homophone groups (spoken identically, ASR may pick either)
   const HOMOPHONE_GROUPS = [
     ['to', 'too', 'two'],
@@ -1029,11 +1076,574 @@
     };
   }
 
+  // =========================================================================
+  // Chinese (Mandarin `zh`) Parsing, Pinyin Mapping & Evaluation
+  // =========================================================================
+
+  function parsePinyinTokens(pyStr) {
+    var raw = String(pyStr || '').trim();
+    if (!raw) return [];
+    return raw.split(/\s+/).filter(Boolean).map(function (tok) {
+      var m = /^([^\p{L}\p{N}]*)([\p{L}\p{N}]+?)([^\p{L}\p{N}]*)$/u.exec(tok);
+      var leading = '';
+      var core = tok;
+      var trailing = '';
+      if (m) {
+        leading = m[1];
+        core = m[2];
+        trailing = m[3];
+      }
+      return {
+        text: tok,
+        leadingPunct: leading,
+        core: core,
+        trailingPunct: trailing,
+        plain: normalizePinyinSyllable(core)
+      };
+    });
+  }
+
   /**
-   * 1. preparePrompt(targetItem, mode)
+   * Parse `targetItem.ch` into Hanzi character units (plus contiguous ASCII/digit units),
+   * attaching punctuation to adjacent units and aligning `targetItem.py` syllables.
    */
-  function preparePrompt(targetItem, mode) {
+  function parseTargetZhUnits(targetItem) {
+    var rawCh = String((targetItem && targetItem.ch) || '').trim();
+    var pyTokens = parsePinyinTokens(targetItem && targetItem.py);
+
+    // Step 1: Walk HTML string to tag each character with `inSpan: boolean`
+    var tagged = [];
+    var inSpan = false;
+    var tagRegex = /<\/?span\b[^>]*>|<[^>]+>|[^<]/gi;
+    var match;
+    while ((match = tagRegex.exec(rawCh)) !== null) {
+      var tok = match[0];
+      if (/^<span\b/i.test(tok)) {
+        inSpan = true;
+      } else if (/^<\/span>/i.test(tok)) {
+        inSpan = false;
+      } else if (/^</.test(tok)) {
+        // ignore other tags
+      } else {
+        tagged.push({ ch: tok, inSpan: inSpan });
+      }
+    }
+
+    // Step 2: Group into units (each CJK char = 1 unit; contiguous ASCII letters/digits = 1 unit;
+    // punctuation attached to leading/trailing of adjacent unit)
+    var units = [];
+    var pendingLeading = '';
+    var i = 0;
+    while (i < tagged.length) {
+      var cur = tagged[i];
+      if (/\s/.test(cur.ch)) {
+        i++;
+        continue;
+      }
+
+      if (isCjkChar(cur.ch)) {
+        var charMeta = [];
+        for (var l = 0; l < pendingLeading.length; l++) {
+          charMeta.push({ char: pendingLeading[l], isCore: false, isKeyChar: false });
+        }
+        charMeta.push({ char: cur.ch, isCore: true, isKeyChar: cur.inSpan });
+        units.push({
+          text: pendingLeading + cur.ch,
+          leadingPunct: pendingLeading,
+          core: cur.ch,
+          trailingPunct: '',
+          clean: cur.ch,
+          isAscii: false,
+          isKeyword: cur.inSpan,
+          pinyin: '',
+          pinyinPlain: '',
+          charMeta: charMeta
+        });
+        pendingLeading = '';
+        i++;
+      } else if (/[A-Za-z0-9]/.test(cur.ch)) {
+        var asciiChars = [];
+        var anySpan = false;
+        while (i < tagged.length && /[A-Za-z0-9''-]/.test(tagged[i].ch)) {
+          asciiChars.push(tagged[i]);
+          if (tagged[i].inSpan) anySpan = true;
+          i++;
+        }
+        var coreStr = asciiChars.map(function (c) { return c.ch; }).join('');
+        var aMeta = [];
+        for (var al = 0; al < pendingLeading.length; al++) {
+          aMeta.push({ char: pendingLeading[al], isCore: false, isKeyChar: false });
+        }
+        for (var ac = 0; ac < asciiChars.length; ac++) {
+          aMeta.push({ char: asciiChars[ac].ch, isCore: true, isKeyChar: asciiChars[ac].inSpan });
+        }
+        units.push({
+          text: pendingLeading + coreStr,
+          leadingPunct: pendingLeading,
+          core: coreStr,
+          trailingPunct: '',
+          clean: coreStr.toLowerCase(),
+          isAscii: true,
+          isKeyword: anySpan,
+          pinyin: coreStr,
+          pinyinPlain: normalizePinyinSyllable(coreStr),
+          charMeta: aMeta
+        });
+        pendingLeading = '';
+      } else {
+        // Punctuation character
+        var isOpening = /^[「『“‘《〈（(\[]/.test(cur.ch);
+        if (!isOpening && units.length > 0) {
+          var prev = units[units.length - 1];
+          prev.trailingPunct += cur.ch;
+          prev.text += cur.ch;
+          prev.charMeta.push({ char: cur.ch, isCore: false, isKeyChar: false });
+        } else {
+          pendingLeading += cur.ch;
+        }
+        i++;
+      }
+    }
+
+    if (pendingLeading && units.length > 0) {
+      var lastU = units[units.length - 1];
+      lastU.trailingPunct += pendingLeading;
+      lastU.text += pendingLeading;
+      for (var pl = 0; pl < pendingLeading.length; pl++) {
+        lastU.charMeta.push({ char: pendingLeading[pl], isCore: false, isKeyChar: false });
+      }
+    }
+
+    // Fallback: if no <span> existed in `ch`, mark first 1-2 CJK units as keyword
+    if (units.length > 0 && !units.some(function (u) { return u.isKeyword; })) {
+      var marked = 0;
+      for (var k = 0; k < units.length && marked < 2; k++) {
+        if (!units[k].isAscii) {
+          units[k].isKeyword = true;
+          units[k].charMeta.forEach(function (cm) { if (cm.isCore) cm.isKeyChar = true; });
+          marked++;
+        }
+      }
+      if (marked === 0) {
+        units[0].isKeyword = true;
+        units[0].charMeta.forEach(function (cm) { if (cm.isCore) cm.isKeyChar = true; });
+      }
+    }
+
+    // Attach Pinyin syllables to units (1-to-1 when counts match, proportional otherwise)
+    if (pyTokens.length > 0 && units.length > 0) {
+      for (var uIdx = 0; uIdx < units.length; uIdx++) {
+        var pyIdx = pyTokens.length === units.length
+          ? uIdx
+          : Math.min(pyTokens.length - 1, Math.floor((uIdx / units.length) * pyTokens.length));
+        units[uIdx].pinyin = pyTokens[pyIdx].core;
+        units[uIdx].pinyinPlain = pyTokens[pyIdx].plain;
+      }
+    }
+
+    return { units: units, pyTokens: pyTokens };
+  }
+
+  /**
+   * Build color-coded Pinyin `ipaTokens` mapped from evaluated Chinese unit results.
+   */
+  function buildZhPinyinTokens(pyTokens, unitResults) {
+    if (!pyTokens || pyTokens.length === 0) return [];
+    var out = [];
+    var pCount = pyTokens.length;
+    var uCount = unitResults.length;
+
+    for (var i = 0; i < pCount; i++) {
+      if (i > 0) {
+        out.push({ text: ' ', level: 'neutral' });
+      }
+      var pt = pyTokens[i];
+      var lv = 'neutral';
+      if (uCount > 0) {
+        var uIdx = pCount === uCount
+          ? i
+          : Math.min(uCount - 1, Math.floor((i / pCount) * uCount));
+        lv = unitResults[uIdx].level || 'neutral';
+      }
+      if (pt.leadingPunct) out.push({ text: pt.leadingPunct, level: 'neutral' });
+      if (pt.core) out.push({ text: pt.core, level: lv });
+      if (pt.trailingPunct) out.push({ text: pt.trailingPunct, level: 'neutral' });
+    }
+    return out;
+  }
+
+  function tokenizeSpokenZhHanzi(spokenText) {
+    var s = String(spokenText || '').trim();
+    var tokens = [];
+    var i = 0;
+    while (i < s.length) {
+      var ch = s[i];
+      if (isCjkChar(ch)) {
+        tokens.push(ch);
+        i++;
+      } else if (/[A-Za-z0-9]/.test(ch)) {
+        var buf = '';
+        while (i < s.length && /[A-Za-z0-9]/.test(s[i])) {
+          buf += s[i];
+          i++;
+        }
+        tokens.push(buf.toLowerCase());
+      } else {
+        i++;
+      }
+    }
+    return tokens;
+  }
+
+  function tokenizeSpokenZhPinyin(spokenText) {
+    var s = String(spokenText || '').trim();
+    if (!s) return [];
+    return s
+      .split(/[\s,.;:!?，。！？、]+/)
+      .map(normalizePinyinSyllable)
+      .filter(Boolean);
+  }
+
+  function zhHanziPairScore(targetUnit, spokenTok) {
+    if (!spokenTok) return 0;
+    if (targetUnit.clean === spokenTok) return 100;
+    if (targetUnit.isAscii && /^[a-z0-9]+$/.test(spokenTok)) {
+      // Digit <-> Hanzi number check or ASCII word similarity
+      return wordPairSimilarity(targetUnit.clean, spokenTok);
+    }
+    // Check digit <-> Hanzi equivalence (e.g. target "5" vs spoken "五" or vice versa)
+    if (ZH_DIGIT_TO_HANZI[targetUnit.clean] && ZH_DIGIT_TO_HANZI[targetUnit.clean].indexOf(spokenTok) !== -1) {
+      return 100;
+    }
+    if (ZH_HANZI_TO_DIGIT[targetUnit.clean] && ZH_HANZI_TO_DIGIT[targetUnit.clean] === spokenTok) {
+      return 100;
+    }
+    if (ZH_HANZI_TO_DIGIT[targetUnit.clean] && ZH_HANZI_TO_DIGIT[spokenTok] &&
+        ZH_HANZI_TO_DIGIT[targetUnit.clean] === ZH_HANZI_TO_DIGIT[spokenTok]) {
+      return 100;
+    }
+    return 0;
+  }
+
+  function zhPinyinPairScore(targetUnit, spokenPy) {
+    if (!spokenPy) return 0;
+    var tPy = targetUnit.pinyinPlain || normalizePinyinSyllable(targetUnit.clean);
+    if (!tPy) return 0;
+    if (tPy === spokenPy) return 100;
+    // Allow u <-> v equivalence in pinyin
+    if (tPy.replace(/v/g, 'u') === spokenPy.replace(/v/g, 'u')) return 98;
+    return alignWordCharacters(tPy, spokenPy).score;
+  }
+
+  /**
+   * DP alignment for Chinese (supports both Hanzi and Pinyin spoken inputs).
+   */
+  function alignZhUnits(targetUnits, spokenTokens, isPinyinInput) {
+    var M = targetUnits.length;
+    var N = spokenTokens.length;
+    var dp = new Array(M + 1);
+    var bt = new Array(M + 1); // 1=match, 2=skip target, 3=skip spoken
+
+    for (var i = 0; i <= M; i++) {
+      dp[i] = new Float64Array(N + 1);
+      bt[i] = new Uint8Array(N + 1);
+      dp[i][0] = 0;
+      bt[i][0] = 2;
+    }
+    for (var j = 0; j <= N; j++) {
+      dp[0][j] = -5 * j;
+      bt[0][j] = 3;
+    }
+    bt[0][0] = 0;
+
+    var minMatchThreshold = isPinyinInput ? 35 : 50;
+
+    for (var r = 1; r <= M; r++) {
+      for (var c = 1; c <= N; c++) {
+        var bestVal = dp[r - 1][c];
+        var bestOp = 2;
+
+        var skipSpoken = dp[r][c - 1] - 5;
+        if (skipSpoken > bestVal) {
+          bestVal = skipSpoken;
+          bestOp = 3;
+        }
+
+        var sim = isPinyinInput
+          ? zhPinyinPairScore(targetUnits[r - 1], spokenTokens[c - 1])
+          : zhHanziPairScore(targetUnits[r - 1], spokenTokens[c - 1]);
+
+        if (sim >= minMatchThreshold) {
+          var matchVal = dp[r - 1][c - 1] + sim;
+          if (matchVal > bestVal) {
+            bestVal = matchVal;
+            bestOp = 1;
+          }
+        }
+
+        dp[r][c] = bestVal;
+        bt[r][c] = bestOp;
+      }
+    }
+
+    var aligned = new Array(M);
+    for (var k = 0; k < M; k++) {
+      aligned[k] = { spoken: '', score: 0 };
+    }
+
+    var ti = M;
+    var sj = N;
+    while (ti > 0 && sj > 0) {
+      var op = bt[ti][sj];
+      if (op === 1) {
+        var sc = isPinyinInput
+          ? zhPinyinPairScore(targetUnits[ti - 1], spokenTokens[sj - 1])
+          : zhHanziPairScore(targetUnits[ti - 1], spokenTokens[sj - 1]);
+        aligned[ti - 1] = { spoken: spokenTokens[sj - 1], score: sc };
+        ti--;
+        sj--;
+      } else if (op === 2) {
+        ti--;
+      } else {
+        sj--;
+      }
+    }
+
+    return aligned;
+  }
+
+  /**
+   * Generate specific Thai pronunciation tip for Chinese.
+   */
+  function generateZhTip(unitResults, overallScore, mode, spokenBest) {
+    if (!spokenBest || !spokenBest.trim()) {
+      return 'ยังไม่ได้ยินเสียงพูด ลองกดปุ่มไมโครโฟนแล้วพูดประโยคภาษาจีนให้ชัดเจนอีกครั้ง';
+    }
+    if (overallScore >= 95) {
+      return 'ออกเสียงภาษาจีนได้ชัดเจนมาก! น้ำเสียงและวรรณยุกต์ใกล้เคียงเจ้าของภาษาเลย';
+    }
+
+    var pool = mode === 'normal'
+      ? unitResults.filter(function (u) { return u.isKeyword; })
+      : unitResults;
+    if (pool.length === 0) pool = unitResults;
+
+    // Collect contiguous low-scoring characters to form a natural Chinese word/phrase
+    var badUnits = pool.filter(function (u) { return u.score < 80; });
+    if (badUnits.length === 0) {
+      return 'ยอดเยี่ยม! ลองฝึกพูดภาษาจีนให้ต่อเนื่องเป็นจังหวะธรรมชาติมากขึ้น';
+    }
+
+    // Group the first contiguous run of bad units in `unitResults`
+    var firstBad = badUnits[0];
+    var startIdx = unitResults.indexOf(firstBad);
+    var group = [firstBad];
+    for (var i = startIdx + 1; i < unitResults.length; i++) {
+      var u = unitResults[i];
+      if (u.score < 80 && (mode !== 'normal' || u.isKeyword)) {
+        group.push(u);
+      } else {
+        break;
+      }
+    }
+
+    var phraseHanzi = group.map(function (u) { return u.core; }).join('');
+    var phrasePy = group.map(function (u) { return u.pinyin; }).filter(Boolean).join(' ');
+    var pyPlain = group.map(function (u) { return u.pinyinPlain || ''; }).join(' ');
+    var label = phrasePy ? ('"' + phraseHanzi + '" (' + phrasePy + ')') : ('"' + phraseHanzi + '"');
+
+    if (/^(zh|ch|sh|r)|\b(zh|ch|sh|r)/.test(pyPlain)) {
+      return 'ลองเน้นเสียงคำว่า ' + label + ' — พยัญชนะม้วนลิ้น (zh/ch/sh/r) ให้ม้วนปลายลิ้นขึ้นเล็กน้อย';
+    }
+    if (/\b(j|q|x)/.test(pyPlain)) {
+      return 'ลองเน้นเสียงคำว่า ' + label + ' — พยัญชนะ (j/q/x) ยิ้มมุมปากเล็กน้อยและปล่อยลมชัด';
+    }
+    if (/ng\b/.test(pyPlain)) {
+      return 'ลองเน้นเสียงคำว่า ' + label + ' — เสียงท้าย -ng ให้ขึ้นจมูกชัดเจน';
+    }
+    if (/ü|v/.test(phrasePy + pyPlain)) {
+      return 'ลองเน้นเสียงคำว่า ' + label + ' — สระ ü ทำปากจู๋เหมือนออกเสียง "อู" แต่เปล่งเสียง "อี"';
+    }
+    return 'ลองเน้นเสียงคำว่า ' + label + ' ให้ชัดเจนขึ้น และฟังเสียงช้า (หอยทาก) เพื่อจับจังหวะวรรณยุกต์';
+  }
+
+  /**
+   * Evaluate a single spoken candidate for Chinese (`lang === 'zh'`).
+   */
+  function evaluateSingleZhCandidate(targetItem, parsedZh, spokenText, mode) {
+    var units = parsedZh.units;
+    var pyTokens = parsedZh.pyTokens;
+    var hasCjk = /[\u4e00-\u9fff\u3400-\u4dbf]/.test(spokenText || '');
+    var isPinyinInput = !hasCjk && /[a-zA-Z]/.test(spokenText || '');
+
+    var spokenTokens = isPinyinInput
+      ? tokenizeSpokenZhPinyin(spokenText)
+      : tokenizeSpokenZhHanzi(spokenText);
+
+    var aligned = alignZhUnits(units, spokenTokens, isPinyinInput);
+
+    var unitResults = units.map(function (u, idx) {
+      var al = aligned[idx];
+      var unitScore = al.score;
+      var unitLevel = scoreToLevel(unitScore);
+
+      var displayLevel = unitLevel;
+      if (mode === 'normal' && !u.isKeyword) {
+        displayLevel = 'neutral';
+      }
+
+      var chars = u.charMeta.map(function (cm) {
+        if (!cm.isCore) {
+          return { char: cm.char, level: 'neutral', underline: false };
+        }
+        if (mode === 'normal') {
+          if (!u.isKeyword) {
+            return { char: cm.char, level: 'neutral', underline: false };
+          }
+          if (unitScore >= 80) {
+            return { char: cm.char, level: 'good', underline: false };
+          }
+          if (unitScore >= 50) {
+            return { char: cm.char, level: 'warn', underline: true };
+          }
+          return { char: cm.char, level: 'bad', underline: true };
+        }
+
+        // Advanced mode
+        if (unitScore >= 80) {
+          return { char: cm.char, level: 'good', underline: false };
+        }
+        if (unitScore >= 50) {
+          return { char: cm.char, level: 'warn', underline: false };
+        }
+        return { char: cm.char, level: 'bad', underline: true };
+      });
+
+      return {
+        text: u.text,
+        leadingPunct: u.leadingPunct,
+        core: u.core,
+        trailingPunct: u.trailingPunct,
+        clean: u.clean,
+        pinyin: u.pinyin,
+        pinyinPlain: u.pinyinPlain,
+        isKeyword: u.isKeyword,
+        score: unitScore,
+        level: displayLevel,
+        spoken: al.spoken || '',
+        chars: chars
+      };
+    });
+
+    var overallScore = 0;
+    if (unitResults.length > 0) {
+      if (mode === 'normal') {
+        var kwUnits = unitResults.filter(function (u) { return u.isKeyword; });
+        var kwAvg = kwUnits.length > 0
+          ? kwUnits.reduce(function (acc, u) { return acc + u.score; }, 0) / kwUnits.length
+          : 0;
+        var sentAvg = unitResults.reduce(function (acc, u) { return acc + u.score; }, 0) / unitResults.length;
+
+        if (kwAvg === 0) {
+          overallScore = Math.min(35, Math.round(sentAvg * 0.35));
+        } else {
+          overallScore = Math.round(kwAvg * 0.85 + sentAvg * 0.15);
+          if (kwAvg < 80 && overallScore >= 80) {
+            overallScore = Math.min(79, Math.round(kwAvg));
+          }
+          if (kwAvg >= 95 && overallScore < 85) {
+            overallScore = 85;
+          }
+        }
+      } else {
+        var sum = unitResults.reduce(function (acc, u) { return acc + u.score; }, 0);
+        overallScore = Math.round(sum / unitResults.length);
+      }
+    }
+
+    overallScore = Math.max(0, Math.min(100, overallScore));
+    var ipaTokens = buildZhPinyinTokens(pyTokens, unitResults);
+
+    var status;
+    var statusTitleTh;
+    var subtitleTh;
+    if (overallScore >= 80) {
+      status = 'correct';
+      statusTitleTh = 'ยอดเยี่ยม!';
+      subtitleTh = 'คุณฟังดู ' + overallScore + '% เหมือนเจ้าของภาษาเลย!';
+    } else if (overallScore >= 50) {
+      status = 'almost';
+      statusTitleTh = 'เกือบจะถูกต้องแล้ว';
+      subtitleTh = 'คุณฟังดู ' + overallScore + '% เหมือนเจ้าของภาษาเลย!';
+    } else {
+      status = 'incorrect';
+      statusTitleTh = 'ไม่ถูกต้อง';
+      subtitleTh = 'คุณฟังดู ' + overallScore + '% เหมือนเจ้าของภาษา — ลองเน้นเสียงสีแดงอีกครั้ง';
+    }
+
+    var tip = generateZhTip(unitResults, overallScore, mode, spokenText);
+
+    return {
+      score: overallScore,
+      status: status,
+      statusTitleTh: statusTitleTh,
+      subtitleTh: subtitleTh,
+      tip: tip,
+      spokenBest: String(spokenText || '').trim(),
+      words: unitResults,
+      ipaTokens: ipaTokens
+    };
+  }
+
+  /**
+   * 1. preparePrompt(targetItem, mode, lang = 'en')
+   */
+  function preparePrompt(targetItem, mode, lang) {
     var safeMode = mode === 'advanced' ? 'advanced' : 'normal';
+    var safeLang = normalizeEngineLang(lang);
+
+    if (safeLang === 'zh') {
+      var parsedZh = parseTargetZhUnits(targetItem);
+      var zhWords = parsedZh.units.map(function (u) {
+        var chars = u.charMeta.map(function (cm) {
+          return {
+            char: cm.char,
+            level: 'neutral',
+            underline: safeMode === 'normal' && cm.isKeyChar
+          };
+        });
+        return {
+          text: u.text,
+          leadingPunct: u.leadingPunct,
+          core: u.core,
+          trailingPunct: u.trailingPunct,
+          clean: u.clean,
+          pinyin: u.pinyin,
+          isKeyword: u.isKeyword,
+          score: null,
+          level: 'neutral',
+          spoken: null,
+          chars: chars
+        };
+      });
+
+      var zhIpaTokens = buildZhPinyinTokens(parsedZh.pyTokens, zhWords);
+      if (safeMode === 'advanced') {
+        return {
+          words: zhWords,
+          ipaTokens: zhIpaTokens,
+          badgeTh: 'วิเคราะห์ทั้งประโยค',
+          instructionTh: 'พูดประโยคภาษาจีนทั้งหมดเพื่อวัดความเหมือนเจ้าของภาษาเป็นเปอร์เซ็นต์'
+        };
+      }
+      return {
+        words: zhWords,
+        ipaTokens: zhIpaTokens,
+        badgeTh: 'เสียงตอบรับแบบเดี่ยว',
+        instructionTh: 'พูดประโยคภาษาจีนและรับฟังความคิดเห็นเกี่ยวกับคำสำคัญที่ขีดเส้นใต้'
+      };
+    }
+
     var parsedWords = parseTargetWords(targetItem);
 
     var words = parsedWords.map(function (tw) {
@@ -1079,11 +1689,11 @@
   }
 
   /**
-   * 2. evaluateSpeech(targetItem, spokenText, mode, alternatives = [])
+   * 2. evaluateSpeech(targetItem, spokenText, mode, alternatives = [], lang = 'en')
    */
-  function evaluateSpeech(targetItem, spokenText, mode, alternatives) {
+  function evaluateSpeech(targetItem, spokenText, mode, alternatives, lang) {
     var safeMode = mode === 'advanced' ? 'advanced' : 'normal';
-    var parsedWords = parseTargetWords(targetItem);
+    var safeLang = normalizeEngineLang(lang);
 
     var candidates = [];
     if (typeof spokenText === 'string' && spokenText.trim()) {
@@ -1097,6 +1707,23 @@
         }
       }
     }
+
+    if (safeLang === 'zh') {
+      var parsedZh = parseTargetZhUnits(targetItem);
+      if (candidates.length === 0) {
+        return evaluateSingleZhCandidate(targetItem, parsedZh, '', safeMode);
+      }
+      var bestZh = null;
+      for (var z = 0; z < candidates.length; z++) {
+        var zhRes = evaluateSingleZhCandidate(targetItem, parsedZh, candidates[z], safeMode);
+        if (!bestZh || zhRes.score > bestZh.score) {
+          bestZh = zhRes;
+        }
+      }
+      return bestZh;
+    }
+
+    var parsedWords = parseTargetWords(targetItem);
 
     if (candidates.length === 0) {
       return evaluateSingleCandidate(targetItem, parsedWords, '', safeMode);
@@ -1132,6 +1759,7 @@
     var isRecording = false;
     var receivedFinalResult = false;
     var lastInterimTranscript = '';
+    var currentLang = 'en-US';
 
     function safeCall(fn) {
       if (typeof fn === 'function') {
@@ -1256,10 +1884,23 @@
       return Boolean(SpeechRecognitionCtor);
     }
 
-    function start() {
+    function setLang(bcp47) {
+      currentLang = normalizeBcp47(bcp47);
+      return currentLang;
+    }
+
+    function getLang() {
+      return currentLang;
+    }
+
+    function start(langOverride) {
       if (!SpeechRecognitionCtor) {
         safeCall(cbs.onError, 'not-supported', 'เบราว์เซอร์นี้ไม่รองรับการรู้จำเสียงพูด (Web Speech API)');
         return false;
+      }
+
+      if (langOverride) {
+        currentLang = normalizeBcp47(langOverride);
       }
 
       if (isRecording) {
@@ -1271,7 +1912,7 @@
       lastInterimTranscript = '';
 
       recognition = new SpeechRecognitionCtor();
-      recognition.lang = 'en-US';
+      recognition.lang = currentLang;
       recognition.interimResults = true;
       recognition.maxAlternatives = 5;
       recognition.continuous = false;
@@ -1412,6 +2053,8 @@
     return {
       start: start,
       stop: stop,
+      setLang: setLang,
+      getLang: getLang,
       isSupported: isSupported,
       getLastAudioUrl: getLastAudioUrl,
       playUserAudio: playUserAudio,
@@ -1420,13 +2063,15 @@
   }
 
   /**
-   * 4. speakTTS(text, rate = 1.0, onEnd)
+   * 4. speakTTS(text, rate = 1.0, onEnd, lang = 'en-US')
    */
-  function speakTTS(text, rate, onEnd) {
+  function speakTTS(text, rate, onEnd, lang) {
     var cleanText = stripHtml(text).replace(/\s+/g, ' ').trim();
     var speed = (typeof rate === 'number' && !isNaN(rate))
       ? Math.max(0.4, Math.min(2.0, rate))
       : 1.0;
+    var targetLang = normalizeBcp47(lang);
+    var langFamily = targetLang.split(/[-_]/)[0].toLowerCase();
 
     function done() {
       if (typeof onEnd === 'function') {
@@ -1444,14 +2089,16 @@
     try {
       window.speechSynthesis.cancel();
       var utterance = new SpeechSynthesisUtterance(cleanText);
-      utterance.lang = 'en-US';
+      utterance.lang = targetLang;
       utterance.rate = speed;
 
       var voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
       if (voices && voices.length > 0) {
-        var enUsVoice = voices.find(function (v) { return /^en[-_]US/i.test(v.lang); }) ||
-          voices.find(function (v) { return /^en/i.test(v.lang); });
-        if (enUsVoice) utterance.voice = enUsVoice;
+        var exactRegex = new RegExp('^' + targetLang.replace('-', '[-_]'), 'i');
+        var familyRegex = new RegExp('^' + langFamily, 'i');
+        var matchedVoice = voices.find(function (v) { return exactRegex.test(v.lang); }) ||
+          voices.find(function (v) { return familyRegex.test(v.lang); });
+        if (matchedVoice) utterance.voice = matchedVoice;
       }
 
       var finished = false;

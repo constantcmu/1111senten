@@ -1404,6 +1404,12 @@
                     <div class="elsa-progress-fill" id="elsaProgressFill" style="width: 0%;"></div>
                 </div>
 
+                <!-- Language Switcher Tabs (English / Chinese) -->
+                <div class="elsa-lang-tabs" role="tablist" aria-label="เลือกภาษาสำหรับฝึกพูด">
+                    <button type="button" class="elsa-lang-tab active" id="elsaLangEn" data-lang="en" role="tab" aria-selected="true">🇬🇧 English</button>
+                    <button type="button" class="elsa-lang-tab" id="elsaLangZh" data-lang="zh" role="tab" aria-selected="false">🇨🇳 中文 (ภาษาจีน)</button>
+                </div>
+
                 <!-- Coach Illustration & Floating Mode Toggle -->
                 <div class="elsa-coach-area">
                     <svg class="elsa-avatar" viewBox="0 0 220 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ELSA Pronunciation Coach">
@@ -1552,16 +1558,16 @@
                             <span class="elsa-info-label">คำแปลภาษาไทย</span>
                             <span class="elsa-info-value" id="elsaInfoTh">-</span>
                         </div>
-                        <div class="elsa-info-row">
-                            <span class="elsa-info-label">ภาษาจีน &amp; Pinyin</span>
-                            <span class="elsa-info-value" id="elsaInfoCh">-</span>
+                        <div class="elsa-info-row hidden" id="elsaInfoRefRow">
+                            <span class="elsa-info-label" id="elsaInfoRefLabel">ภาษาอังกฤษอ้างอิง</span>
+                            <span class="elsa-info-value" id="elsaInfoRef">-</span>
                         </div>
                         <div class="elsa-info-row hidden" id="elsaInfoSpokenRow">
                             <span class="elsa-info-label">คุณพูดว่า</span>
                             <span class="elsa-info-value" id="elsaInfoSpoken">-</span>
                         </div>
                         <div class="elsa-info-row hidden" id="elsaInfoChipsRow">
-                            <span class="elsa-info-label">คะแนนรายคำ</span>
+                            <span class="elsa-info-label" id="elsaInfoChipsLabel">คะแนนรายคำ</span>
                             <div class="elsa-word-chips" id="elsaWordChips"></div>
                         </div>
                     </div>
@@ -1590,7 +1596,7 @@
 
                     <!-- Fallback / Simulation Input Bar -->
                     <div class="elsa-fallback-bar">
-                        <input type="text" class="elsa-fallback-input" id="elsaFallbackInput" placeholder="พิมพ์ทดสอบ / โหมดจำลอง...">
+                        <input type="text" class="elsa-fallback-input" id="elsaFallbackInput" placeholder="พิมพ์ประโยคภาษาอังกฤษทดสอบ...">
                         <button type="button" class="elsa-fallback-btn" id="elsaFallbackBtn">ตรวจเสียง</button>
                     </div>
                 </div>
@@ -2212,7 +2218,11 @@
 
             // Autoplay engine (only when navigating via user step)
             if (autoPlayCheckbox.checked && currentSentence && step !== 0) {
-                speakText(currentSentence.en, 'en');
+                if (currentMode === 'shadowing' && elsaLang === 'zh') {
+                    speakText(currentSentence.ch, 'zh');
+                } else {
+                    speakText(currentSentence.en, 'en');
+                }
             }
         }
 
@@ -2527,12 +2537,23 @@
         // =====================================================================
         const ELSA_RING_CIRCUMFERENCE = 2 * Math.PI * 18; // r=18 -> ~113.097
         let elsaMode = 'normal'; // 'normal' | 'advanced'
+        let elsaLang = 'en';     // 'en' | 'zh'
+        try {
+            const savedElsaLang = localStorage.getItem('elsa_shadowing_lang');
+            if (savedElsaLang === 'zh' || savedElsaLang === 'en') {
+                elsaLang = savedElsaLang;
+            }
+        } catch (e) { /* ignore storage errors */ }
         let elsaSkipCount = 0;
         let elsaLastSpoken = null; // { text, alternatives }
         let elsaLastResult = null;
         let elsaIsRecording = false;
         let elsaRecorder = null;
         let elsaInitialized = false;
+
+        function getElsaBcp47() {
+            return elsaLang === 'zh' ? 'zh-CN' : 'en-US';
+        }
 
         function escapeElsaHtml(str) {
             return String(str || '')
@@ -2543,10 +2564,40 @@
                 .replace(/'/g, '&#39;');
         }
 
+        function syncElsaLangUI() {
+            const btnLangEn = document.getElementById('elsaLangEn');
+            const btnLangZh = document.getElementById('elsaLangZh');
+            const sentEl = document.getElementById('elsaSentence');
+            const ipaEl = document.getElementById('elsaIpa');
+            const fallbackInput = document.getElementById('elsaFallbackInput');
+
+            const isZh = elsaLang === 'zh';
+            if (btnLangEn) {
+                btnLangEn.classList.toggle('active', !isZh);
+                btnLangEn.setAttribute('aria-selected', String(!isZh));
+            }
+            if (btnLangZh) {
+                btnLangZh.classList.toggle('active', isZh);
+                btnLangZh.setAttribute('aria-selected', String(isZh));
+            }
+            if (sentEl) sentEl.classList.toggle('lang-zh', isZh);
+            if (ipaEl) ipaEl.classList.toggle('lang-zh', isZh);
+            if (fallbackInput) {
+                fallbackInput.placeholder = isZh
+                    ? 'พิมพ์ภาษาจีนหรือพินอินทดสอบ...'
+                    : 'พิมพ์ประโยคภาษาอังกฤษทดสอบ...';
+            }
+            if (elsaRecorder && typeof elsaRecorder.setLang === 'function') {
+                elsaRecorder.setLang(getElsaBcp47());
+            }
+        }
+
         function initShadowingController() {
             if (elsaInitialized) return;
             elsaInitialized = true;
 
+            const btnLangEn = document.getElementById('elsaLangEn');
+            const btnLangZh = document.getElementById('elsaLangZh');
             const btnModeNormal = document.getElementById('elsaModeNormal');
             const btnModeAdvanced = document.getElementById('elsaModeAdvanced');
             const btnSpeakNormal = document.getElementById('elsaBtnSpeakNormal');
@@ -2599,6 +2650,25 @@
                 });
             }
 
+            // Apply initial persisted language to tabs, typography, placeholder, and recorder
+            syncElsaLangUI();
+
+            // Language tab switcher (English / Chinese)
+            function switchElsaLang(newLang) {
+                if (newLang !== 'en' && newLang !== 'zh') return;
+                if (elsaLang === newLang) return;
+                elsaLang = newLang;
+                try {
+                    localStorage.setItem('elsa_shadowing_lang', elsaLang);
+                } catch (e) { /* ignore storage errors */ }
+                resetShadowingCardState();
+                syncElsaLangUI();
+                renderShadowingWorkspace();
+            }
+
+            if (btnLangEn) btnLangEn.addEventListener('click', () => switchElsaLang('en'));
+            if (btnLangZh) btnLangZh.addEventListener('click', () => switchElsaLang('zh'));
+
             // Mode toggle (ปกติ / ระดับสูง)
             function switchElsaMode(newMode) {
                 if (elsaMode === newMode) return;
@@ -2621,21 +2691,23 @@
             // Normal speed TTS (1.0x)
             btnSpeakNormal.addEventListener('click', () => {
                 if (!currentSentence || !window.ElsaShadowingEngine) return;
+                const targetText = elsaLang === 'zh' ? currentSentence.ch : currentSentence.en;
                 btnSpeakSlow.classList.remove('playing');
                 btnSpeakNormal.classList.add('playing');
-                window.ElsaShadowingEngine.speakTTS(currentSentence.en, 1.0, () => {
+                window.ElsaShadowingEngine.speakTTS(targetText, 1.0, () => {
                     btnSpeakNormal.classList.remove('playing');
-                });
+                }, getElsaBcp47());
             });
 
             // Slow snail TTS (0.65x)
             btnSpeakSlow.addEventListener('click', () => {
                 if (!currentSentence || !window.ElsaShadowingEngine) return;
+                const targetText = elsaLang === 'zh' ? currentSentence.ch : currentSentence.en;
                 btnSpeakNormal.classList.remove('playing');
                 btnSpeakSlow.classList.add('playing');
-                window.ElsaShadowingEngine.speakTTS(currentSentence.en, 0.65, () => {
+                window.ElsaShadowingEngine.speakTTS(targetText, 0.65, () => {
                     btnSpeakSlow.classList.remove('playing');
-                });
+                }, getElsaBcp47());
             });
 
             // Bookmark / Starred sync
@@ -2726,7 +2798,10 @@
             } else {
                 const interimEl = document.getElementById('elsaInterimText');
                 if (interimEl) interimEl.textContent = '';
-                elsaRecorder.start();
+                if (typeof elsaRecorder.setLang === 'function') {
+                    elsaRecorder.setLang(getElsaBcp47());
+                }
+                elsaRecorder.start(getElsaBcp47());
             }
         }
 
@@ -2760,13 +2835,14 @@
 
         function renderShadowingWordsHtml(words) {
             if (!Array.isArray(words) || words.length === 0) return '';
+            const joiner = elsaLang === 'zh' ? '' : ' ';
             return words.map((w) => {
                 const charsHtml = (w.chars || []).map((c) => {
                     const cls = `elsa-char level-${c.level || 'neutral'}${c.underline ? ' is-underline' : ''}`;
                     return `<span class="${cls}">${escapeElsaHtml(c.char)}</span>`;
                 }).join('');
                 return `<span class="elsa-word">${charsHtml}</span>`;
-            }).join(' ');
+            }).join(joiner);
         }
 
         function renderShadowingIpaHtml(ipaTokens) {
@@ -2780,16 +2856,34 @@
         function renderShadowingInfoPanel(result) {
             if (!currentSentence) return;
             const infoTh = document.getElementById('elsaInfoTh');
-            const infoCh = document.getElementById('elsaInfoCh');
+            const refRow = document.getElementById('elsaInfoRefRow');
+            const refLabel = document.getElementById('elsaInfoRefLabel');
+            const refVal = document.getElementById('elsaInfoRef');
             const spokenRow = document.getElementById('elsaInfoSpokenRow');
             const spokenVal = document.getElementById('elsaInfoSpoken');
             const chipsRow = document.getElementById('elsaInfoChipsRow');
+            const chipsLabel = document.getElementById('elsaInfoChipsLabel');
             const chipsWrap = document.getElementById('elsaWordChips');
 
-            const cleanCh = String(currentSentence.ch || '').replace(/<[^>]*>/g, '');
-            const cleanPy = String(currentSentence.py || '').replace(/<[^>]*>/g, '');
             if (infoTh) infoTh.textContent = currentSentence.th || '-';
-            if (infoCh) infoCh.textContent = cleanPy ? `${cleanCh} (${cleanPy})` : (cleanCh || '-');
+
+            // Keep Info panel clean per language tab:
+            // EN tab: Thai translation + transcript + word chips (no Chinese clutter)
+            // ZH tab: Thai translation + English reference + transcript + char/word chips
+            if (refRow && refVal) {
+                if (elsaLang === 'zh') {
+                    const cleanEn = String(currentSentence.en || '').replace(/<[^>]*>/g, '');
+                    refRow.classList.remove('hidden');
+                    if (refLabel) refLabel.textContent = 'ภาษาอังกฤษอ้างอิง';
+                    refVal.textContent = cleanEn || '-';
+                } else {
+                    refRow.classList.add('hidden');
+                }
+            }
+
+            if (chipsLabel) {
+                chipsLabel.textContent = elsaLang === 'zh' ? 'คะแนนรายอักษร / คำ' : 'คะแนนรายคำ';
+            }
 
             if (result) {
                 if (spokenRow && spokenVal) {
@@ -2801,7 +2895,10 @@
                     chipsWrap.innerHTML = (result.words || []).map((w) => {
                         const lv = w.level || 'neutral';
                         const scoreLabel = typeof w.score === 'number' ? `${w.score}%` : '-';
-                        return `<span class="elsa-word-chip level-${lv}">${escapeElsaHtml(w.core || w.text)} · ${scoreLabel}</span>`;
+                        const tokenLabel = (elsaLang === 'zh' && w.pinyin)
+                            ? `${w.core || w.text} (${w.pinyin})`
+                            : (w.core || w.text);
+                        return `<span class="elsa-word-chip level-${lv}">${escapeElsaHtml(tokenLabel)} · ${scoreLabel}</span>`;
                     }).join('');
                 }
             } else {
@@ -2813,6 +2910,8 @@
 
         function renderShadowingWorkspace() {
             if (!currentSentence || !window.ElsaShadowingEngine) return;
+
+            syncElsaLangUI();
 
             // Update top bar counter & progress bar
             const total = activeQueue.length || 1;
@@ -2837,7 +2936,7 @@
             }
 
             // Prompt state (Before speaking)
-            const prompt = window.ElsaShadowingEngine.preparePrompt(currentSentence, elsaMode);
+            const prompt = window.ElsaShadowingEngine.preparePrompt(currentSentence, elsaMode, elsaLang);
 
             const card = document.getElementById('elsaCard');
             card.classList.remove('status-correct', 'status-almost', 'status-incorrect');
@@ -2865,7 +2964,8 @@
                 currentSentence,
                 spokenText,
                 elsaMode,
-                alternatives || []
+                alternatives || [],
+                elsaLang
             );
             elsaLastResult = result;
             renderShadowingFeedbackView(result);
