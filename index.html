@@ -380,6 +380,7 @@
             let elsaSkipCount = 0;
             let elsaLastSpoken = null;      // { text, alternatives }
             let elsaLastResult = null;
+            let elsaMicState = 'idle';      // 'idle' | 'starting' | 'listening'
             let elsaIsRecording = false;
             let elsaRecorder = null;
             let toastTimer = null;
@@ -757,17 +758,56 @@
             // =================================================================
             // Speech Recognition & Mic Controls
             // =================================================================
+            function setInterimMessage(text, isError) {
+                const el = document.getElementById('elsaInterimText');
+                if (!el) return;
+                if (!text) {
+                    el.textContent = '';
+                    el.style.color = '';
+                    el.style.fontStyle = '';
+                    el.style.fontWeight = '';
+                    return;
+                }
+                if (isError) {
+                    el.textContent = text.startsWith('⚠️') ? text : `⚠️ ${text}`;
+                    el.style.color = '#FCA5A5';
+                    el.style.fontStyle = 'normal';
+                    el.style.fontWeight = '500';
+                } else {
+                    el.textContent = text;
+                    el.style.color = '';
+                    el.style.fontStyle = '';
+                    el.style.fontWeight = '';
+                }
+            }
+
             function updateMicUI() {
                 const micBtn = document.getElementById('elsaMicBtn');
                 const micHint = document.getElementById('elsaMicHint');
-                micBtn.classList.toggle('recording', elsaIsRecording);
-                micHint.textContent = elsaIsRecording ? 'กำลังฟัง...' : 'แตะเพื่อพูด';
+                if (!micBtn || !micHint) return;
+                const isActive = elsaMicState === 'starting' || elsaMicState === 'listening';
+                micBtn.disabled = false;
+                micBtn.classList.toggle('recording', isActive);
+                if (elsaMicState === 'starting') {
+                    micHint.textContent = 'กำลังเปิดไมค์...';
+                    micBtn.setAttribute('aria-label', 'กำลังเปิดไมค์ แตะเพื่อหยุด');
+                } else if (elsaMicState === 'listening') {
+                    micHint.textContent = 'กำลังฟัง... พูดได้เลย';
+                    micBtn.setAttribute('aria-label', 'กำลังฟัง แตะเพื่อหยุด');
+                } else {
+                    micHint.textContent = 'แตะเพื่อพูด';
+                    micBtn.setAttribute('aria-label', 'แตะเพื่อพูด');
+                }
             }
 
             function stopRecording() {
-                if (elsaRecorder && elsaIsRecording) {
+                const recActive = elsaRecorder && typeof elsaRecorder.isRecording === 'function'
+                    ? elsaRecorder.isRecording()
+                    : elsaIsRecording;
+                if (elsaRecorder && (recActive || elsaMicState !== 'idle')) {
                     elsaRecorder.stop();
                 }
+                elsaMicState = 'idle';
                 elsaIsRecording = false;
                 updateMicUI();
             }
@@ -776,20 +816,34 @@
                 const item = getCurrentItem();
                 if (!item) return;
                 if (!elsaRecorder || !elsaRecorder.isSupported()) {
-                    document.getElementById('elsaInterimText').textContent = 'เบราว์เซอร์นี้ไม่รองรับไมโครโฟน — แตะ ⌨️ ด้านล่างเพื่อพิมพ์ทดสอบ';
+                    setInterimMessage('เบราว์เซอร์นี้ไม่รองรับการรับเสียง — แนะนำเปิดใน Chrome / Edge / Safari หรือพิมพ์ทดสอบด้านล่าง', true);
                     openFallbackBar();
                     return;
                 }
-                if (elsaIsRecording) {
+                const recActive = typeof elsaRecorder.isRecording === 'function'
+                    ? elsaRecorder.isRecording()
+                    : elsaIsRecording;
+                if (elsaMicState !== 'idle' || recActive) {
                     elsaRecorder.stop();
+                    elsaMicState = 'idle';
+                    elsaIsRecording = false;
+                    updateMicUI();
                 } else {
                     if (window.ElsaShadowingEngine && typeof window.ElsaShadowingEngine.stopSpeaking === 'function') {
                         window.ElsaShadowingEngine.stopSpeaking();
                     }
                     clearSpeakButtonStates();
-                    document.getElementById('elsaInterimText').textContent = '';
+                    setInterimMessage('', false);
+                    elsaMicState = 'starting';
+                    elsaIsRecording = true;
+                    updateMicUI();
                     elsaRecorder.setLang(getBcp47());
-                    elsaRecorder.start(getBcp47());
+                    const started = elsaRecorder.start(getBcp47());
+                    if (started === false) {
+                        elsaMicState = 'idle';
+                        elsaIsRecording = false;
+                        updateMicUI();
+                    }
                 }
             }
 
@@ -807,7 +861,7 @@
                 const btnPlayUser = document.getElementById('elsaBtnPlayUser');
                 btnPlayUser.classList.add('hidden');
                 btnPlayUser.classList.remove('playing');
-                document.getElementById('elsaInterimText').textContent = '';
+                setInterimMessage('', false);
                 document.getElementById('elsaFallbackInput').value = '';
             }
 
@@ -826,6 +880,9 @@
                 const engine = window.ElsaShadowingEngine;
                 if (!item || !engine) return;
 
+                if (elsaMicState !== 'idle' || elsaIsRecording) {
+                    stopRecording();
+                }
                 clearSpeakButtonStates();
                 const targetText = elsaLang === 'zh' ? item.ch : item.en;
                 const cfg = engine.getVoiceSettings();
@@ -1079,15 +1136,18 @@
                 if (engine && typeof engine.createRecorder === 'function') {
                     elsaRecorder = engine.createRecorder({
                         onStart: () => {
+                            elsaMicState = 'listening';
                             elsaIsRecording = true;
                             updateMicUI();
                         },
                         onInterim: (transcript) => {
-                            document.getElementById('elsaInterimText').textContent = `"${transcript}"`;
+                            setInterimMessage(`"${transcript}"`, false);
                         },
                         onResult: (finalTranscript, alternatives) => {
+                            elsaMicState = 'idle';
                             elsaIsRecording = false;
                             updateMicUI();
+                            setInterimMessage('', false);
                             evaluateAndRender(finalTranscript, alternatives || []);
                         },
                         onAudioReady: (audioUrl) => {
@@ -1096,13 +1156,18 @@
                             }
                         },
                         onError: (code, messageTh) => {
+                            elsaMicState = 'idle';
                             elsaIsRecording = false;
                             updateMicUI();
                             if (code !== 'aborted') {
-                                document.getElementById('elsaInterimText').textContent = messageTh || 'ไม่สามารถฟังเสียงได้ ลองใช้ช่องพิมพ์ทดสอบ (⌨️)';
+                                setInterimMessage(messageTh || 'ไม่สามารถฟังเสียงได้ ลองใช้ช่องพิมพ์ทดสอบ (⌨️)', true);
+                                if (code === 'not-supported') {
+                                    openFallbackBar();
+                                }
                             }
                         },
                         onEnd: () => {
+                            elsaMicState = 'idle';
                             elsaIsRecording = false;
                             updateMicUI();
                         }

@@ -1742,13 +1742,10 @@
 
   /**
    * 3. createRecorder(callbacks)
-   * Combines Web Speech API (SpeechRecognition) with MediaRecorder mic capture.
+   * Combines Web Speech API (SpeechRecognition) with optional, non-blocking MediaRecorder mic capture.
    */
   function createRecorder(callbacks) {
     var cbs = callbacks || {};
-    var SpeechRecognitionCtor = (typeof window !== 'undefined')
-      ? (window.SpeechRecognition || window.webkitSpeechRecognition || null)
-      : null;
 
     var recognition = null;
     var mediaRecorder = null;
@@ -1760,6 +1757,14 @@
     var receivedFinalResult = false;
     var lastInterimTranscript = '';
     var currentLang = 'en-US';
+    var sessionSeq = 0;
+    var mediaCaptureDisabled = false;
+    var mediaCaptureStartedForSession = false;
+
+    function getSpeechRecognitionCtor() {
+      if (typeof window === 'undefined') return null;
+      return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+    }
 
     function safeCall(fn) {
       if (typeof fn === 'function') {
@@ -1804,8 +1809,19 @@
       }
     }
 
-    function startMediaCapture() {
+    function detachRecognition(rec) {
+      if (!rec) return;
+      try {
+        rec.onstart = null;
+        rec.onresult = null;
+        rec.onerror = null;
+        rec.onend = null;
+      } catch (e) { /* ignore */ }
+    }
+
+    function startMediaCapture(mySession) {
       if (
+        mediaCaptureDisabled ||
         typeof navigator === 'undefined' ||
         !navigator.mediaDevices ||
         typeof navigator.mediaDevices.getUserMedia !== 'function' ||
@@ -1814,10 +1830,12 @@
         return;
       }
 
+      mediaCaptureStartedForSession = true;
+
       navigator.mediaDevices.getUserMedia({ audio: true })
         .then(function (stream) {
-          // If recognition already stopped before mic stream resolved, immediately release stream
-          if (!isRecording) {
+          // If recognition already stopped or a newer session started, release immediately
+          if (!isRecording || mySession !== sessionSeq) {
             stream.getTracks().forEach(function (t) { t.stop(); });
             return;
           }
@@ -1845,6 +1863,7 @@
               ? new MediaRecorder(stream, options)
               : new MediaRecorder(stream);
           } catch (err) {
+            mediaCaptureDisabled = true;
             stopMediaTracks();
             return;
           }
@@ -1869,6 +1888,7 @@
           };
 
           mediaRecorder.onerror = function () {
+            mediaCaptureDisabled = true;
             stopMediaTracks();
             mediaRecorder = null;
           };
@@ -1877,11 +1897,12 @@
         })
         .catch(function () {
           // Gracefully degrade: SpeechRecognition still works even if MediaRecorder/mic capture fails
+          mediaCaptureDisabled = true;
         });
     }
 
     function isSupported() {
-      return Boolean(SpeechRecognitionCtor);
+      return Boolean(getSpeechRecognitionCtor());
     }
 
     function setLang(bcp47) {
@@ -1893,35 +1914,73 @@
       return currentLang;
     }
 
-    function start(langOverride) {
+    function getIsRecording() {
+      return isRecording;
+    }
+
+    function startInternal(isRetryWithoutMedia) {
+      var SpeechRecognitionCtor = getSpeechRecognitionCtor();
       if (!SpeechRecognitionCtor) {
-        safeCall(cbs.onError, 'not-supported', 'เบราว์เซอร์นี้ไม่รองรับการรู้จำเสียงพูด (Web Speech API)');
+        isRecording = false;
+        safeCall(
+          cbs.onError,
+          'not-supported',
+          'เบราว์เซอร์นี้ไม่รองรับการรับเสียง — แนะนำเปิดใน Chrome / Edge / Safari หรือใช้ปุ่ม ⌨️'
+        );
+        safeCall(cbs.onEnd);
         return false;
       }
 
-      if (langOverride) {
-        currentLang = normalizeBcp47(langOverride);
-      }
+      // Stop any active TTS playback before opening microphone
+      stopSpeaking();
 
-      if (isRecording) {
-        stop();
+      // Cleanly abort any prior recognition instance before starting a new session
+      if (recognition) {
+        var oldRec = recognition;
+        recognition = null;
+        detachRecognition(oldRec);
+        try {
+          oldRec.abort();
+        } catch (e) { /* ignore */ }
       }
+      stopMediaRecorder();
+
+      var mySession = ++sessionSeq;
+      var endedEmitted = false;
+      var retryingWithoutMedia = false;
 
       isRecording = true;
       receivedFinalResult = false;
       lastInterimTranscript = '';
+      mediaCaptureStartedForSession = false;
 
-      recognition = new SpeechRecognitionCtor();
-      recognition.lang = currentLang;
-      recognition.interimResults = true;
-      recognition.maxAlternatives = 5;
-      recognition.continuous = false;
+      function emitEndOnce() {
+        if (endedEmitted) return;
+        endedEmitted = true;
+        isRecording = false;
+        stopMediaRecorder();
+        safeCall(cbs.onEnd);
+      }
 
-      recognition.onstart = function () {
+      var rec = new SpeechRecognitionCtor();
+      recognition = rec;
+      rec.lang = currentLang;
+      rec.interimResults = true;
+      rec.maxAlternatives = 5;
+      rec.continuous = false;
+
+      rec.onstart = function () {
+        if (mySession !== sessionSeq) return;
         safeCall(cbs.onStart);
+        // Start optional MediaRecorder AFTER SpeechRecognition acquires the mic
+        // so it never competes with initial mic permission or locks the hardware!
+        if (!isRetryWithoutMedia && !mediaCaptureDisabled) {
+          startMediaCapture(mySession);
+        }
       };
 
-      recognition.onresult = function (event) {
+      rec.onresult = function (event) {
+        if (mySession !== sessionSeq) return;
         if (!event || !event.results) return;
         var interimText = '';
         var finalTranscript = '';
@@ -1957,20 +2016,37 @@
         }
       };
 
-      recognition.onerror = function (event) {
+      rec.onerror = function (event) {
+        if (mySession !== sessionSeq) return;
         var code = (event && event.error) || 'unknown';
+
+        // If MediaRecorder caused mic contention (audio-capture/aborted) on this device,
+        // disable MediaRecorder for the session and retry SpeechRecognition cleanly once!
+        if (!isRetryWithoutMedia && mediaCaptureStartedForSession && (code === 'audio-capture' || code === 'aborted')) {
+          mediaCaptureDisabled = true;
+          retryingWithoutMedia = true;
+          stopMediaRecorder();
+          detachRecognition(rec);
+          if (recognition === rec) recognition = null;
+          startInternal(true);
+          return;
+        }
+
         var msgMap = {
-          'not-allowed': 'กรุณาอนุญาตการใช้ไมโครโฟนในเบราว์เซอร์',
-          'service-not-allowed': 'ไม่อนุญาตให้ใช้บริการรู้จำเสียงพูด',
-          'no-speech': 'ไม่ได้ยินเสียงพูด กรุณาลองใหม่อีกครั้ง',
-          'audio-capture': 'ไม่พบไมโครโฟน กรุณาตรวจสอบอุปกรณ์',
-          'network': 'เกิดข้อผิดพลาดทางเครือข่ายในการรู้จำเสียงพูด',
+          'not-allowed': 'กรุณาอนุญาตการใช้ไมโครโฟนในเบราว์เซอร์ (คลิกไอคอนแม่กุญแจที่แถบ URL)',
+          'service-not-allowed': 'ไม่อนุญาตให้ใช้บริการรู้จำเสียงพูด กรุณาตรวจสอบสิทธิ์ไมโครโฟน',
+          'no-speech': 'ไม่ได้ยินเสียงพูด ลองพูดให้ดังขึ้นและใกล้ไมค์',
+          'audio-capture': 'ไม่พบไมโครโฟนหรือถูกแอปอื่นใช้งานอยู่',
+          'network': 'ต้องเชื่อมต่ออินเทอร์เน็ตเพื่อใช้ระบบรู้จำเสียงของเบราว์เซอร์ — หรือใช้ปุ่ม ⌨️ พิมพ์ทดสอบ',
+          'not-supported': 'เบราว์เซอร์นี้ไม่รองรับการรับเสียง — แนะนำเปิดใน Chrome / Edge / Safari หรือใช้ปุ่ม ⌨️',
           'aborted': 'หยุดการฟังเสียงแล้ว'
         };
         safeCall(cbs.onError, code, msgMap[code] || ('ข้อผิดพลาดไมโครโฟน: ' + code));
       };
 
-      recognition.onend = function () {
+      rec.onend = function () {
+        if (mySession !== sessionSeq || retryingWithoutMedia) return;
+        if (recognition === rec) recognition = null;
         var hadInterimOnly = !receivedFinalResult && Boolean(lastInterimTranscript);
         isRecording = false;
         stopMediaRecorder();
@@ -1978,19 +2054,27 @@
           receivedFinalResult = true;
           safeCall(cbs.onResult, lastInterimTranscript, [lastInterimTranscript]);
         }
-        safeCall(cbs.onEnd);
+        emitEndOnce();
       };
 
+      // Call recognition.start() synchronously inside user gesture!
       try {
-        recognition.start();
-        startMediaCapture();
+        rec.start();
         return true;
       } catch (err) {
-        isRecording = false;
-        stopMediaRecorder();
-        safeCall(cbs.onError, 'start-failed', 'ไม่สามารถเริ่มการฟังเสียงได้ กรุณาลองใหม่');
+        detachRecognition(rec);
+        if (recognition === rec) recognition = null;
+        safeCall(cbs.onError, 'start-failed', 'ไม่สามารถเริ่มการฟังเสียงได้ กรุณาลองกดไมโครโฟนอีกครั้ง');
+        emitEndOnce();
         return false;
       }
+    }
+
+    function start(langOverride) {
+      if (langOverride) {
+        currentLang = normalizeBcp47(langOverride);
+      }
+      return startInternal(false);
     }
 
     function stop() {
@@ -2056,6 +2140,7 @@
       setLang: setLang,
       getLang: getLang,
       isSupported: isSupported,
+      isRecording: getIsRecording,
       getLastAudioUrl: getLastAudioUrl,
       playUserAudio: playUserAudio,
       clearAudio: clearAudio
