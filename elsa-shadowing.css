@@ -1,0 +1,976 @@
+/* ==========================================================================
+   ELSA Speak-Inspired Shadowing Workspace Stylesheet
+   Harmonizes with Fluent Flashcards light/dark theme variables while
+   delivering the signature dark indigo/violet ELSA studio experience.
+   ========================================================================== */
+
+/* ---- Studio Container ---- */
+.elsa-stage {
+    position: relative;
+    width: 100%;
+    max-width: 540px;
+    margin: 0 auto;
+    padding: 20px 20px 24px;
+    border-radius: 28px;
+    background:
+        radial-gradient(circle at 50% 30%, rgba(99, 102, 241, 0.22) 0%, transparent 58%),
+        linear-gradient(180deg, #33294d 0%, #1d2240 55%, #171636 100%);
+    color: #f8fafc;
+    font-family: var(--font-thai, 'Prompt'), var(--font-english, 'Outfit'), sans-serif;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    box-shadow:
+        0 24px 52px -12px rgba(15, 16, 40, 0.65),
+        0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+    overflow: hidden;
+    text-align: left;
+}
+
+[data-theme="light"] .elsa-stage {
+    box-shadow:
+        0 24px 48px -12px rgba(30, 27, 75, 0.35),
+        0 8px 20px -6px rgba(30, 27, 75, 0.18);
+    border-color: rgba(51, 41, 77, 0.25);
+}
+
+.elsa-stage *,
+.elsa-stage *::before,
+.elsa-stage *::after {
+    box-sizing: border-box;
+}
+
+/* Accessibility focus rings inside the studio */
+.elsa-stage button:focus-visible,
+.elsa-stage input:focus-visible {
+    outline: 2px solid #38bdf8;
+    outline-offset: 2px;
+}
+
+/* ---- Top Bar & Progress ---- */
+.elsa-topbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px 12px;
+    margin-bottom: 18px;
+}
+
+.elsa-topbar-title,
+.elsa-title {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: 0.01em;
+    margin: 0;
+    white-space: nowrap;
+}
+
+.elsa-counter {
+    font-family: var(--font-english, 'Outfit'), sans-serif;
+    font-size: 0.82rem;
+    font-weight: 500;
+    color: rgba(226, 232, 240, 0.72);
+    white-space: nowrap;
+}
+
+.elsa-progress-track {
+    flex: 1 1 110px;
+    min-width: 72px;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 999px;
+    overflow: hidden;
+    position: relative;
+}
+
+/* When placed as a full-width bar directly under .elsa-topbar */
+.elsa-stage > .elsa-progress-track {
+    flex: none;
+    width: 100%;
+    height: 4px;
+    margin: -8px 0 18px;
+}
+
+.elsa-progress-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #38bdf8 0%, #60a5fa 100%);
+    border-radius: 999px;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.55);
+    transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.elsa-skip-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.14);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #e2e8f0;
+    font-size: 0.78rem;
+    font-weight: 500;
+    line-height: 1.3;
+    white-space: nowrap;
+}
+
+.elsa-skip-badge::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #38bdf8;
+    box-shadow: 0 0 6px rgba(56, 189, 248, 0.8);
+}
+
+/* ---- Coach Avatar Glass Area & Floating Mode Toggle ---- */
+.elsa-coach-area {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    min-height: 196px;
+    padding: 16px 16px 0;
+    margin-bottom: 34px;
+    border-radius: 22px;
+    background:
+        radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.12) 0%, rgba(148, 163, 184, 0.06) 62%, rgba(30, 41, 59, 0.12) 100%),
+        linear-gradient(180deg, rgba(255, 255, 255, 0.1) 0%, rgba(255, 255, 255, 0.04) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    overflow: visible;
+}
+
+.elsa-avatar {
+    display: block;
+    width: 176px;
+    max-width: 72%;
+    height: auto;
+    max-height: 188px;
+    margin: 0 auto;
+    filter: drop-shadow(0 10px 18px rgba(15, 23, 42, 0.28));
+    user-select: none;
+    pointer-events: none;
+    border-radius: 0 0 18px 18px;
+}
+
+.elsa-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px;
+    border-radius: 999px;
+    background: rgba(19, 22, 49, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.38);
+    z-index: 4;
+}
+
+.elsa-coach-area .elsa-mode-toggle {
+    position: absolute;
+    left: 50%;
+    bottom: -21px;
+    transform: translateX(-50%);
+}
+
+.elsa-mode-btn {
+    border: none;
+    background: transparent;
+    color: rgba(241, 245, 249, 0.88);
+    font-family: var(--font-thai, 'Prompt'), var(--font-english, 'Outfit'), sans-serif;
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 8px 26px;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.24s ease, color 0.24s ease, box-shadow 0.24s ease, transform 0.15s ease;
+}
+
+.elsa-mode-btn:hover:not(.active) {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.elsa-mode-btn.active {
+    background: #ffffff;
+    color: #0f172a;
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.24);
+}
+
+/* ---- Main Crisp White Feedback & Sentence Card ---- */
+.elsa-card {
+    position: relative;
+    background: #f8fafc;
+    color: #1e293b;
+    border-radius: 22px;
+    padding: 20px 22px;
+    margin-bottom: 20px;
+    box-shadow:
+        0 16px 36px rgba(8, 10, 28, 0.34),
+        0 2px 6px rgba(15, 23, 42, 0.1);
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* Prompt State (Before Speaking) */
+.elsa-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #3b82f6;
+    color: #ffffff;
+    font-size: 0.78rem;
+    font-weight: 600;
+    padding: 4px 11px;
+    border-radius: 7px;
+    margin-bottom: 9px;
+    letter-spacing: 0.01em;
+}
+
+.elsa-instruction {
+    font-size: 0.88rem;
+    color: #64748b;
+    line-height: 1.48;
+    margin: 0 0 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+/* Feedback State Header (After Speaking) */
+.elsa-feedback-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.elsa-status-block {
+    flex: 1;
+    min-width: 0;
+}
+
+.elsa-status-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 4px;
+}
+
+.elsa-status-icon {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    font-weight: 800;
+    line-height: 1;
+    flex-shrink: 0;
+    background: #cbd5e1;
+    color: #1e293b;
+}
+
+.elsa-status-title {
+    font-size: 1.12rem;
+    font-weight: 700;
+    line-height: 1.3;
+    margin: 0;
+    color: #1e293b;
+}
+
+.elsa-status-subtitle {
+    font-size: 0.86rem;
+    color: #475569;
+    line-height: 1.45;
+    margin: 2px 0 0;
+}
+
+/* Status Color Themes (applied on .elsa-feedback-header or .elsa-card) */
+.status-correct .elsa-status-icon {
+    background: #16a34a;
+    color: #ffffff;
+}
+
+.status-correct .elsa-status-title,
+.status-correct .elsa-ring-text {
+    color: #16a34a;
+    fill: #16a34a;
+}
+
+.status-correct .elsa-ring-progress {
+    stroke: #16a34a;
+}
+
+.status-almost .elsa-status-icon {
+    background: transparent;
+    color: #ea580c;
+    border: 2.5px dashed #ea580c;
+}
+
+.status-almost .elsa-status-title,
+.status-almost .elsa-ring-text {
+    color: #ea580c;
+    fill: #ea580c;
+}
+
+.status-almost .elsa-ring-progress {
+    stroke: #ea580c;
+}
+
+.status-incorrect .elsa-status-icon {
+    background: #dc2626;
+    color: #ffffff;
+}
+
+.status-incorrect .elsa-status-title,
+.status-incorrect .elsa-ring-text {
+    color: #dc2626;
+    fill: #dc2626;
+}
+
+.status-incorrect .elsa-ring-progress {
+    stroke: #dc2626;
+}
+
+/* Circular SVG Percentage Ring */
+.elsa-score-ring {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+.elsa-score-ring svg {
+    width: 44px;
+    height: 44px;
+    display: block;
+    overflow: visible;
+}
+
+.elsa-ring-bg {
+    fill: none;
+    stroke: #e2e8f0;
+    stroke-width: 4;
+}
+
+.elsa-ring-progress {
+    fill: none;
+    stroke: #3b82f6;
+    stroke-width: 4;
+    stroke-linecap: round;
+    transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+    transition: stroke-dashoffset 0.7s cubic-bezier(0.22, 1, 0.36, 1), stroke 0.3s ease;
+}
+
+.elsa-ring-text {
+    font-family: var(--font-english, 'Outfit'), sans-serif;
+    font-size: 1.08rem;
+    font-weight: 700;
+    color: #1e293b;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+}
+
+/* Collapsible Pronunciation Tip Box */
+.elsa-tip-box {
+    position: relative;
+    margin: -6px 0 18px;
+    padding: 0 0 14px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.elsa-tip-text {
+    font-size: 0.85rem;
+    color: #64748b;
+    line-height: 1.5;
+    margin: 0;
+}
+
+.elsa-tip-box.collapsed .elsa-tip-text {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.elsa-tip-toggle {
+    position: absolute;
+    left: 50%;
+    bottom: -11px;
+    transform: translateX(-50%);
+    width: 44px;
+    height: 22px;
+    border-radius: 999px;
+    border: 1px solid #e2e8f0;
+    background: #ffffff;
+    color: #3b82f6;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.elsa-tip-toggle:hover {
+    background: #eff6ff;
+    color: #2563eb;
+    box-shadow: 0 3px 8px rgba(59, 130, 246, 0.18);
+}
+
+.elsa-tip-toggle svg {
+    width: 14px;
+    height: 14px;
+    transition: transform 0.25s ease;
+}
+
+.elsa-tip-box:not(.collapsed) .elsa-tip-toggle svg {
+    transform: rotate(180deg);
+}
+
+/* ---- Sentence & IPA Display ---- */
+.elsa-sentence {
+    font-family: var(--font-english, 'Outfit'), sans-serif;
+    font-size: 1.65rem;
+    font-weight: 600;
+    line-height: 1.45;
+    color: #1e293b;
+    margin: 4px 0 6px;
+    word-break: break-word;
+}
+
+.elsa-word,
+.elsa-char {
+    display: inline;
+    transition: color 0.2s ease;
+}
+
+.elsa-word.level-good,
+.elsa-char.level-good,
+.elsa-ipa-token.level-good {
+    color: #15803d;
+}
+
+.elsa-word.level-warn,
+.elsa-char.level-warn,
+.elsa-ipa-token.level-warn {
+    color: #ea580c;
+}
+
+.elsa-word.level-bad,
+.elsa-char.level-bad,
+.elsa-ipa-token.level-bad {
+    color: #dc2626;
+}
+
+.elsa-word.level-neutral,
+.elsa-char.level-neutral {
+    color: #1e293b;
+}
+
+.is-underline {
+    text-decoration: underline;
+    text-underline-offset: 5px;
+    text-decoration-thickness: 2.5px;
+    text-decoration-skip-ink: none;
+}
+
+.elsa-ipa {
+    font-family: 'Segoe UI', 'Lucida Sans Unicode', var(--font-english, 'Outfit'), sans-serif;
+    font-size: 1.02rem;
+    font-weight: 500;
+    line-height: 1.5;
+    color: #64748b;
+    margin: 0 0 18px;
+    letter-spacing: 0.01em;
+    word-break: break-word;
+}
+
+.elsa-ipa-token.level-neutral {
+    color: #64748b;
+}
+
+/* ---- Action Buttons Row ---- */
+.elsa-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 2px;
+}
+
+.elsa-icon-btn {
+    position: relative;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: #3b82f6;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.16s ease, color 0.2s ease;
+}
+
+.elsa-icon-btn svg {
+    width: 24px;
+    height: 24px;
+    position: relative;
+    z-index: 2;
+}
+
+.elsa-icon-btn:hover:not(:disabled) {
+    background: rgba(59, 130, 246, 0.11);
+    color: #2563eb;
+    transform: scale(1.06);
+}
+
+.elsa-icon-btn:active:not(:disabled) {
+    transform: scale(0.95);
+}
+
+.elsa-icon-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.elsa-icon-btn.active,
+.elsa-icon-btn.bookmarked {
+    background: rgba(59, 130, 246, 0.14);
+    color: #2563eb;
+}
+
+/* Pulsing Concentric Blue Ring Animation (TTS / User Voice Playback) */
+.elsa-icon-btn.playing {
+    background: rgba(59, 130, 246, 0.14);
+    color: #2563eb;
+}
+
+.elsa-icon-btn.playing::before,
+.elsa-icon-btn.playing::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(59, 130, 246, 0.6);
+    pointer-events: none;
+    animation: elsa-ring-pulse 1.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
+.elsa-icon-btn.playing::after {
+    animation-delay: 0.55s;
+}
+
+.elsa-info-btn {
+    margin-left: auto;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    color: #94a3b8;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+    transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.elsa-info-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+.elsa-info-btn:hover,
+.elsa-info-btn.active {
+    color: #3b82f6;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+/* ---- Expandable Info Panel ---- */
+.elsa-info-panel {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px dashed #cbd5e1;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    font-size: 0.88rem;
+    color: #334155;
+    animation: elsa-fade-slide 0.22s ease;
+}
+
+.elsa-info-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.elsa-info-label {
+    font-size: 0.74rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+}
+
+.elsa-info-value {
+    font-size: 0.92rem;
+    color: #0f172a;
+    line-height: 1.45;
+}
+
+.elsa-word-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.elsa-word-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-family: var(--font-english, 'Outfit'), sans-serif;
+    font-size: 0.78rem;
+    font-weight: 600;
+    background: #e2e8f0;
+    color: #334155;
+}
+
+.elsa-word-chip.level-good {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+.elsa-word-chip.level-warn {
+    background: #ffedd5;
+    color: #c2410c;
+}
+
+.elsa-word-chip.level-bad {
+    background: #fee2e2;
+    color: #b91c1c;
+}
+
+/* ---- Bottom Controls (Mic & Action Buttons) ---- */
+.elsa-bottom-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+}
+
+.elsa-mic-wrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 4px 0 6px;
+}
+
+.elsa-interim-text {
+    min-height: 20px;
+    font-size: 0.92rem;
+    font-style: italic;
+    color: #93c5fd;
+    text-align: center;
+    max-width: 100%;
+    word-break: break-word;
+    margin: 0;
+}
+
+.elsa-mic-hint {
+    font-size: 0.92rem;
+    font-weight: 500;
+    color: #e2e8f0;
+    letter-spacing: 0.01em;
+    margin: 0;
+}
+
+.elsa-mic-btn {
+    position: relative;
+    width: 68px;
+    height: 68px;
+    border-radius: 18px;
+    border: none;
+    background: linear-gradient(135deg, #4b94ff 0%, #3b82f6 100%);
+    color: #ffffff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow:
+        0 10px 26px rgba(59, 130, 246, 0.45),
+        inset 0 1px 0 rgba(255, 255, 255, 0.25);
+    transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.elsa-mic-btn svg {
+    width: 30px;
+    height: 30px;
+}
+
+.elsa-mic-btn:hover {
+    transform: translateY(-2px) scale(1.03);
+    box-shadow:
+        0 14px 32px rgba(59, 130, 246, 0.58),
+        inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.elsa-mic-btn:active {
+    transform: scale(0.96);
+}
+
+.elsa-mic-btn.recording {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.65);
+    animation: elsa-mic-pulse 1.45s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Footer Action Buttons (Retry / Primary Continue / Skip) */
+.elsa-footer-btns {
+    display: flex;
+    align-items: stretch;
+    gap: 12px;
+    width: 100%;
+    margin-top: 4px;
+}
+
+.elsa-btn-retry,
+.elsa-btn-skip,
+.elsa-btn-primary {
+    flex: 1;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    font-family: var(--font-thai, 'Prompt'), var(--font-english, 'Outfit'), sans-serif;
+    font-size: 0.98rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: transform 0.15s ease, background-color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.elsa-btn-retry,
+.elsa-btn-skip {
+    background: rgba(255, 255, 255, 0.11);
+    color: #f8fafc;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.elsa-btn-retry:hover,
+.elsa-btn-skip:hover {
+    background: rgba(255, 255, 255, 0.17);
+    transform: translateY(-1px);
+}
+
+/* Primary button intentionally placed after retry/skip so combining .elsa-btn-retry.elsa-btn-primary yields ELSA blue */
+.elsa-btn-primary {
+    background: linear-gradient(135deg, #4b94ff 0%, #3b82f6 100%);
+    color: #ffffff;
+    border: 1px solid rgba(96, 165, 250, 0.4);
+    box-shadow: 0 8px 20px rgba(59, 130, 246, 0.38);
+}
+
+.elsa-btn-primary:hover {
+    background: linear-gradient(135deg, #5ca0ff 0%, #2563eb 100%);
+    box-shadow: 0 10px 24px rgba(59, 130, 246, 0.5);
+    transform: translateY(-1px);
+}
+
+.elsa-btn-retry:active,
+.elsa-btn-skip:active,
+.elsa-btn-primary:active {
+    transform: translateY(0) scale(0.98);
+}
+
+/* ---- Simulation / Typing Fallback Bar ---- */
+.elsa-fallback-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-top: 18px;
+    padding-top: 14px;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.elsa-fallback-bar input[type="text"],
+.elsa-fallback-input {
+    flex: 1 1 180px;
+    min-width: 0;
+    padding: 9px 13px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: rgba(15, 23, 42, 0.55);
+    color: #f8fafc;
+    font-family: var(--font-english, 'Outfit'), var(--font-thai, 'Prompt'), sans-serif;
+    font-size: 0.88rem;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.elsa-fallback-bar input[type="text"]::placeholder,
+.elsa-fallback-input::placeholder {
+    color: rgba(148, 163, 184, 0.78);
+}
+
+.elsa-fallback-bar input[type="text"]:focus,
+.elsa-fallback-input:focus {
+    outline: none;
+    border-color: #38bdf8;
+    background: rgba(15, 23, 42, 0.78);
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.22);
+}
+
+.elsa-fallback-bar button,
+.elsa-fallback-btn {
+    padding: 9px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(56, 189, 248, 0.38);
+    background: rgba(56, 189, 248, 0.16);
+    color: #7dd3fc;
+    font-family: var(--font-thai, 'Prompt'), var(--font-english, 'Outfit'), sans-serif;
+    font-size: 0.84rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
+}
+
+.elsa-fallback-bar button:hover,
+.elsa-fallback-btn:hover {
+    background: rgba(56, 189, 248, 0.28);
+    color: #ffffff;
+    transform: translateY(-1px);
+}
+
+.elsa-fallback-bar button:active,
+.elsa-fallback-btn:active {
+    transform: scale(0.97);
+}
+
+/* ---- Animations ---- */
+@keyframes elsa-ring-pulse {
+    0% {
+        transform: scale(0.92);
+        opacity: 0.85;
+    }
+    70% {
+        transform: scale(1.48);
+        opacity: 0.18;
+    }
+    100% {
+        transform: scale(1.65);
+        opacity: 0;
+    }
+}
+
+@keyframes elsa-mic-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.65);
+    }
+    70% {
+        box-shadow: 0 0 0 18px rgba(239, 68, 68, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+    }
+}
+
+@keyframes elsa-fade-slide {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ---- Responsive Tweaks ---- */
+@media (max-width: 520px) {
+    .elsa-stage {
+        padding: 16px 14px 20px;
+        border-radius: 22px;
+    }
+
+    .elsa-coach-area {
+        min-height: 168px;
+        margin-bottom: 30px;
+    }
+
+    .elsa-avatar {
+        width: 148px;
+        max-height: 160px;
+    }
+
+    .elsa-mode-btn {
+        padding: 7px 20px;
+        font-size: 0.85rem;
+    }
+
+    .elsa-card {
+        padding: 16px 16px 18px;
+        border-radius: 18px;
+    }
+
+    .elsa-sentence {
+        font-size: 1.38rem;
+    }
+
+    .elsa-ipa {
+        font-size: 0.94rem;
+    }
+
+    .elsa-mic-btn {
+        width: 62px;
+        height: 62px;
+        border-radius: 16px;
+    }
+
+    .elsa-btn-retry,
+    .elsa-btn-skip,
+    .elsa-btn-primary {
+        padding: 12px 12px;
+        font-size: 0.92rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .elsa-icon-btn.playing::before,
+    .elsa-icon-btn.playing::after,
+    .elsa-mic-btn.recording,
+    .elsa-info-panel {
+        animation: none;
+    }
+
+    .elsa-progress-fill,
+    .elsa-ring-progress,
+    .elsa-mode-btn,
+    .elsa-mic-btn {
+        transition: none;
+    }
+}

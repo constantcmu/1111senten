@@ -1,0 +1,6 @@
+.venv/
+.antigravitycli/
+__pycache__/
+*.bak.json
+tmp_dupes.txt
+compare_log.txt
