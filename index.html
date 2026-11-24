@@ -324,6 +324,10 @@
                         <span class="elsa-field-label">เลือกเสียง AI (Voice Persona)</span>
                         <div class="elsa-chip-row" id="geminiVoiceChips"></div>
                     </div>
+                    <div class="elsa-field">
+                        <button type="button" class="elsa-chip-btn" id="btnCopyPrivateLink" style="width:100%;padding:10px 12px;border-radius:12px;text-align:center;">🔗 คัดลอกลิงก์เปิดบนเครื่องอื่น (Private Link)</button>
+                        <p class="elsa-field-hint">ลิงก์นี้มี API Key อยู่ใน #hash สำหรับเปิดบนมือถือ/เครื่องอื่นของคุณเอง — ห้ามแชร์ต่อให้ผู้อื่น</p>
+                    </div>
                 </div>
 
                 <!-- Natural Browser Voice Settings -->
@@ -427,7 +431,7 @@
                 return String(str || '').replace(/<[^>]*>/g, '');
             }
 
-            function showToast(msg) {
+            function showToast(msg, durationMs) {
                 const toast = document.getElementById('elsaToast');
                 if (!toast) return;
                 toast.textContent = msg;
@@ -435,7 +439,7 @@
                 if (toastTimer) clearTimeout(toastTimer);
                 toastTimer = setTimeout(() => {
                     toast.classList.remove('show');
-                }, 2600);
+                }, typeof durationMs === 'number' ? durationMs : 2600);
             }
 
             // =================================================================
@@ -843,9 +847,12 @@
                     onEnd: () => {
                         buttonEl.classList.remove('loading', 'playing');
                     },
+                    onVoiceStatus: (statusMsg) => {
+                        if (statusMsg) showToast(statusMsg, 3800);
+                    },
                     onError: (msg) => {
                         buttonEl.classList.remove('loading', 'playing');
-                        if (msg) showToast(msg);
+                        if (msg) showToast(msg, 3800);
                     }
                 });
             }
@@ -1059,6 +1066,16 @@
             function initApp() {
                 const engine = window.ElsaShadowingEngine;
 
+                // Bootstrap Google AI Voice key from URL #hash (if present) and scrub hash immediately
+                if (engine && typeof engine.bootstrapVoiceFromHash === 'function') {
+                    const bootRes = engine.bootstrapVoiceFromHash();
+                    if (bootRes && bootRes.applied) {
+                        syncVoiceBadge();
+                        renderVoiceSheet();
+                        showToast('✨ บันทึก Google AI Key ในเบราว์เซอร์แล้ว (ซ่อนจากแถบ URL อัตโนมัติ)', 3500);
+                    }
+                }
+
                 if (engine && typeof engine.createRecorder === 'function') {
                     elsaRecorder = engine.createRecorder({
                         onStart: () => {
@@ -1248,6 +1265,33 @@
                     engine.saveVoiceSettings({ apiKey: e.target.value.trim() });
                     syncVoiceBadge();
                 });
+                document.getElementById('btnCopyPrivateLink').addEventListener('click', async () => {
+                    if (!engine || typeof engine.buildPersonalSetupUrl !== 'function') return;
+                    const baseUrl = window.location.origin + window.location.pathname;
+                    const privateUrl = engine.buildPersonalSetupUrl(baseUrl);
+                    if (!privateUrl) {
+                        setVoiceStatus('กรุณาใส่ Gemini API Key ก่อนคัดลอกลิงก์ส่วนตัว', true);
+                        return;
+                    }
+                    try {
+                        if (navigator.clipboard && navigator.clipboard.writeText) {
+                            await navigator.clipboard.writeText(privateUrl);
+                        } else {
+                            const ta = document.createElement('textarea');
+                            ta.value = privateUrl;
+                            ta.style.position = 'fixed';
+                            ta.style.opacity = '0';
+                            document.body.appendChild(ta);
+                            ta.select();
+                            document.execCommand('copy');
+                            document.body.removeChild(ta);
+                        }
+                        setVoiceStatus('✅ คัดลอกลิงก์ส่วนตัวแล้ว! ใช้เปิดบนเครื่องอื่นของคุณได้ทันที (อย่าแชร์ลิงก์นี้ให้ผู้อื่น)', false);
+                        showToast('🔗 คัดลอกลิงก์ส่วนตัวแล้ว (ห้ามแชร์สาธารณะ)', 3200);
+                    } catch (err) {
+                        setVoiceStatus('ไม่สามารถคัดลอกอัตโนมัติได้ กรุณาลองอีกครั้ง', true);
+                    }
+                });
                 document.getElementById('browserVoiceEnSelect').addEventListener('change', (e) => {
                     if (!engine) return;
                     engine.saveVoiceSettings({ browserVoiceEn: e.target.value });
@@ -1271,6 +1315,9 @@
                                 ? `✨ กำลังเล่นด้วย Google Gemini (${voiceName || cfg.geminiVoice})`
                                 : `🔊 กำลังเล่นด้วยเสียงเบราว์เซอร์ (${voiceName || 'Default'})`;
                             setVoiceStatus(label, false);
+                        },
+                        onVoiceStatus: (statusMsg) => {
+                            if (statusMsg) setVoiceStatus(statusMsg, false);
                         },
                         onEnd: () => {
                             syncVoiceBadge();

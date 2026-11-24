@@ -2430,7 +2430,9 @@
     return null;
   }
 
-  function base64ToBlob(base64Str, mimeType) {
+  var GEMINI_25_TTS_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent';
+
+  function base64ToUint8Array(base64Str) {
     var cleanB64 = String(base64Str || '').replace(/^data:[^;]+;base64,/, '').replace(/\s+/g, '');
     if (typeof atob === 'function') {
       var binary = atob(cleanB64);
@@ -2439,13 +2441,190 @@
       for (var i = 0; i < len; i++) {
         bytes[i] = binary.charCodeAt(i);
       }
-      return new Blob([bytes], { type: mimeType || 'audio/wav' });
+      return bytes;
     }
     if (typeof Buffer !== 'undefined') {
-      var buf = Buffer.from(cleanB64, 'base64');
-      return new Blob([buf], { type: mimeType || 'audio/wav' });
+      return new Uint8Array(Buffer.from(cleanB64, 'base64'));
     }
     throw new Error('Base64 decoder unavailable');
+  }
+
+  /**
+   * Wrap raw 16-bit signed little-endian PCM bytes in a standard 44-byte RIFF/WAVE header.
+   */
+  function pcm16ToWavBytes(pcmBytes, sampleRate, channels) {
+    var sr = (typeof sampleRate === 'number' && sampleRate > 0) ? sampleRate : 24000;
+    var ch = (typeof channels === 'number' && channels > 0) ? channels : 1;
+    var bitsPerSample = 16;
+    var byteRate = sr * ch * (bitsPerSample / 8);
+    var blockAlign = ch * (bitsPerSample / 8);
+    var dataSize = pcmBytes.byteLength;
+    var wav = new Uint8Array(44 + dataSize);
+    var view = new DataView(wav.buffer);
+
+    function writeAscii(offset, str) {
+      for (var i = 0; i < str.length; i++) {
+        view.setUint8(offset + i, str.charCodeAt(i));
+      }
+    }
+
+    writeAscii(0, 'RIFF');
+    view.setUint32(4, 36 + dataSize, true);
+    writeAscii(8, 'WAVE');
+    writeAscii(12, 'fmt ');
+    view.setUint32(16, 16, true);           // PCM chunk size
+    view.setUint16(20, 1, true);            // AudioFormat = 1 (PCM)
+    view.setUint16(22, ch, true);           // NumChannels
+    view.setUint32(24, sr, true);           // SampleRate
+    view.setUint32(28, byteRate, true);     // ByteRate
+    view.setUint16(32, blockAlign, true);   // BlockAlign
+    view.setUint16(34, bitsPerSample, true);// BitsPerSample
+    writeAscii(36, 'data');
+    view.setUint32(40, dataSize, true);
+    wav.set(pcmBytes, 44);
+    return wav;
+  }
+
+  function base64ToBlob(base64Str, mimeType) {
+    var bytes = base64ToUint8Array(base64Str);
+    var mt = String(mimeType || 'audio/wav');
+    if (/audio\/(l16|pcm)/i.test(mt)) {
+      var rateMatch = /rate=(\d+)/i.exec(mt);
+      var sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
+      var wavBytes = pcm16ToWavBytes(bytes, sampleRate, 1);
+      return new Blob([wavBytes], { type: 'audio/wav' });
+    }
+    return new Blob([bytes], { type: mt });
+  }
+
+  function buildGemini25TtsPayload(cleanText, opts) {
+    var o = opts || {};
+    var voice = o.voice || 'Kore';
+    var lang = normalizeBcp47(o.lang);
+    var isZh = /^zh/i.test(lang);
+    var isSlow = typeof o.rate === 'number' && o.rate < 0.9;
+
+    var promptPrefix;
+    if (isSlow) {
+      promptPrefix = isZh
+        ? 'Speak slowly and clearly in Mandarin Chinese: '
+        : 'Speak slowly and very clearly for a language learner: ';
+    } else {
+      promptPrefix = isZh
+        ? 'Speak warmly and naturally in Mandarin Chinese: '
+        : 'Speak warmly and naturally in American English: ';
+    }
+
+    return {
+      contents: [{
+        parts: [{ text: promptPrefix + cleanText }]
+      }],
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: voice }
+          }
+        }
+      }
+    };
+  }
+
+  function extractGemini25AudioFromResponse(json) {
+    if (!json || !Array.isArray(json.candidates)) return null;
+    for (var i = 0; i < json.candidates.length; i++) {
+      var cand = json.candidates[i];
+      var parts = cand && cand.content && cand.content.parts;
+      if (!Array.isArray(parts)) continue;
+      for (var p = 0; p < parts.length; p++) {
+        var inline = parts[p] && (parts[p].inlineData || parts[p].inline_data);
+        if (inline && typeof inline.data === 'string' && inline.data.length > 0) {
+          return {
+            base64: inline.data,
+            mimeType: inline.mimeType || inline.mime_type || 'audio/L16;codec=pcm;rate=24000'
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Security-first hash bootstrap:
+   * Reads `#key=...&voice=...&model=...` from `window.location.hash`,
+   * persists to `localStorage` via `saveVoiceSettings`, and immediately scrubs the URL hash.
+   */
+  function bootstrapVoiceFromHash() {
+    if (typeof window === 'undefined' || !window.location || !window.location.hash) {
+      return { applied: false };
+    }
+    var rawHash = String(window.location.hash || '').replace(/^#/, '').trim();
+    if (!rawHash) return { applied: false };
+
+    var params = {};
+    if (typeof URLSearchParams === 'function') {
+      var usp = new URLSearchParams(rawHash);
+      usp.forEach(function (val, k) {
+        params[k] = val;
+      });
+    } else {
+      rawHash.split('&').forEach(function (pair) {
+        var eqIdx = pair.indexOf('=');
+        if (eqIdx === -1) return;
+        var k = decodeURIComponent(pair.slice(0, eqIdx));
+        var v = decodeURIComponent(pair.slice(eqIdx + 1));
+        params[k] = v;
+      });
+    }
+
+    var key = typeof params.key === 'string' ? params.key.trim() : '';
+    if (!key) {
+      return { applied: false };
+    }
+
+    var patch = {
+      provider: 'gemini',
+      apiKey: key
+    };
+    if (typeof params.voice === 'string' && GEMINI_VOICES.indexOf(params.voice.trim()) !== -1) {
+      patch.geminiVoice = params.voice.trim();
+    }
+    if (typeof params.model === 'string' &&
+        GEMINI_MODELS.some(function (m) { return m.id === params.model.trim(); })) {
+      patch.geminiModel = params.model.trim();
+    }
+
+    saveVoiceSettings(patch);
+
+    // Immediately scrub the URL hash so the key disappears from the address bar
+    try {
+      if (window.history && typeof window.history.replaceState === 'function') {
+        var cleanUrl = (window.location.pathname || '/') + (window.location.search || '');
+        window.history.replaceState(null, '', cleanUrl);
+      }
+    } catch (e) { /* ignore history restrictions */ }
+
+    return { applied: true, provider: 'gemini' };
+  }
+
+  /**
+   * Builds a personal setup URL containing the user's saved Gemini key in the hash fragment
+   * (never sent to servers; scrubbed automatically on open by `bootstrapVoiceFromHash`).
+   */
+  function buildPersonalSetupUrl(baseUrl) {
+    var settings = getVoiceSettings();
+    if (!settings.apiKey) return '';
+    var base = typeof baseUrl === 'string' && baseUrl.trim()
+      ? baseUrl.trim()
+      : (typeof window !== 'undefined' && window.location
+        ? (window.location.origin + window.location.pathname)
+        : '');
+    if (!base) return '';
+    base = base.replace(/#.*$/, '');
+    return base +
+      '#key=' + encodeURIComponent(settings.apiKey) +
+      '&voice=' + encodeURIComponent(settings.geminiVoice) +
+      '&model=' + encodeURIComponent(settings.geminiModel);
   }
 
   function stopSpeaking() {
@@ -2600,6 +2779,56 @@
 
     safeCallFn(opts.onVoiceStatus, 'loading', 'กำลังสร้างเสียง AI...');
 
+    var isVertexExpressKey = settings.apiKey.indexOf('AQ.') === 0;
+
+    function buildGeminiHttpError(status, bodyText) {
+      if (isVertexExpressKey && (status === 400 || status === 401 || status === 403)) {
+        return new Error('คีย์ที่ขึ้นต้นด้วย "AQ." เป็น Vertex AI Express Key — Gemini Developer API จาก Google AI Studio ต้องใช้คีย์ที่ขึ้นต้นด้วย "AIza..." (สลับเป็นเสียงเบราว์เซอร์ธรรมชาติอัตโนมัติ)');
+      }
+      var errMsg = 'Gemini TTS HTTP ' + status;
+      if (status === 401 || status === 403) {
+        errMsg = 'API Key ไม่ถูกต้องหรือไม่มีสิทธิ์ใช้งาน Gemini TTS';
+      } else if (status === 429) {
+        errMsg = 'เกินโควต้า Gemini API ชั่วคราว — สลับเป็นเสียงเบราว์เซอร์อัตโนมัติ';
+      } else if (bodyText) {
+        errMsg = errMsg + ': ' + bodyText.slice(0, 120);
+      }
+      var err = new Error(errMsg);
+      err.httpStatus = status;
+      return err;
+    }
+
+    function callGemini25Fallback() {
+      var fallbackPayload = buildGemini25TtsPayload(cleanText, {
+        voice: settings.geminiVoice,
+        lang: targetLang,
+        rate: speed
+      });
+      return fetch(GEMINI_25_TTS_ENDPOINT, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': settings.apiKey
+        },
+        body: JSON.stringify(fallbackPayload)
+      })
+        .then(function (resp) {
+          if (!resp.ok) {
+            return resp.text().then(function (bodyText) {
+              throw buildGeminiHttpError(resp.status, bodyText);
+            });
+          }
+          return resp.json();
+        })
+        .then(function (json) {
+          var audioInfo = extractGemini25AudioFromResponse(json);
+          if (!audioInfo || !audioInfo.base64) {
+            throw new Error('ไม่พบข้อมูลเสียงในคำตอบจาก Gemini 2.5 TTS');
+          }
+          return audioInfo;
+        });
+    }
+
     fetch(GEMINI_TTS_ENDPOINT, {
       method: 'POST',
       headers: {
@@ -2611,25 +2840,24 @@
       .then(function (resp) {
         if (!resp.ok) {
           return resp.text().then(function (bodyText) {
-            var errMsg = 'Gemini TTS HTTP ' + resp.status;
-            if (resp.status === 401 || resp.status === 403) {
-              errMsg = 'API Key ไม่ถูกต้องหรือไม่มีสิทธิ์ใช้งาน Gemini TTS';
-            } else if (resp.status === 429) {
-              errMsg = 'เกินโควต้า Gemini API ชั่วคราว — สลับเป็นเสียงเบราว์เซอร์อัตโนมัติ';
-            } else if (bodyText) {
-              errMsg = errMsg + ': ' + bodyText.slice(0, 120);
+            // If v1beta/interactions returns 400/404 with a standard AI Studio key,
+            // gracefully try gemini-2.5-flash-preview-tts generateContent before browser fallback
+            if (!isVertexExpressKey && (resp.status === 400 || resp.status === 404)) {
+              return callGemini25Fallback();
             }
-            throw new Error(errMsg);
+            throw buildGeminiHttpError(resp.status, bodyText);
           });
         }
-        return resp.json();
+        return resp.json().then(function (json) {
+          var audioInfo = extractGeminiAudioFromResponse(json);
+          if (!audioInfo || !audioInfo.base64) {
+            throw new Error('ไม่พบข้อมูลเสียงในคำตอบจาก Gemini TTS');
+          }
+          return audioInfo;
+        });
       })
-      .then(function (json) {
+      .then(function (audioInfo) {
         if (reqId !== speakRequestSeq) return;
-        var audioInfo = extractGeminiAudioFromResponse(json);
-        if (!audioInfo || !audioInfo.base64) {
-          throw new Error('ไม่พบข้อมูลเสียงในคำตอบจาก Gemini TTS');
-        }
         var blob = base64ToBlob(audioInfo.base64, audioInfo.mimeType);
         var url = URL.createObjectURL(blob);
         putTtsCache(targetKey, { url: url, blob: blob });
@@ -2672,12 +2900,17 @@
     stopSpeaking: stopSpeaking,
     getVoiceSettings: getVoiceSettings,
     saveVoiceSettings: saveVoiceSettings,
+    bootstrapVoiceFromHash: bootstrapVoiceFromHash,
+    buildPersonalSetupUrl: buildPersonalSetupUrl,
     getRankedBrowserVoices: getRankedBrowserVoices,
     GEMINI_VOICES: GEMINI_VOICES.slice(),
     GEMINI_MODELS: GEMINI_MODELS.map(function (m) { return Object.assign({}, m); }),
     // Testable helpers for unit verification
     _buildGeminiTtsPayload: buildGeminiTtsPayload,
     _extractGeminiAudioFromResponse: extractGeminiAudioFromResponse,
+    _buildGemini25TtsPayload: buildGemini25TtsPayload,
+    _extractGemini25AudioFromResponse: extractGemini25AudioFromResponse,
+    _pcm16ToWavBytes: pcm16ToWavBytes,
     _buildTtsCacheKey: buildTtsCacheKey
   };
 
