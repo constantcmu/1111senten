@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="th">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="theme-color" content="#342A4F">
+    <title>ELSA Premium · บทความ A1–C2</title>
+
+    <!-- Google Fonts: Plus Jakarta Sans (EN), Noto Sans Thai (TH) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <link rel="stylesheet" href="passages.css">
+</head>
+
+<body>
+    <div class="psg-shell">
+        <!-- Sticky Topbar -->
+        <header class="psg-topbar">
+            <a href="index.html" class="psg-back-link" title="กลับไปโหมดฝึกพูดตามประโยค">← Shadowing</a>
+
+            <div class="psg-topbar-center">
+                <span class="psg-premium-pill">ELSA Premium</span>
+                <h1 class="psg-topbar-title">บทความ A1–C2</h1>
+            </div>
+
+            <div class="psg-mastery-pill" id="psgMasteryPill">🏆 0 / 120</div>
+        </header>
+
+        <!-- ================================================================
+             VIEW 1: CEFR A1–C2 PASSAGE LIBRARY
+             ================================================================ -->
+        <section class="psg-library" id="psgLibraryView" aria-label="คลังบทความภาษาอังกฤษ A1 ถึง C2">
+            <!-- 6 CEFR Level Tabs (populated dynamically by passages.js) -->
+            <div class="psg-cefr-tabs" id="psgCefrTabs" role="tablist" aria-label="เลือกระดับ CEFR"></div>
+
+            <!-- Filter Chips + Search Bar -->
+            <div class="psg-filter-row">
+                <div class="psg-filter-chips" id="psgFilterChips">
+                    <button type="button" class="psg-filter-chip active" data-filter="all">ทั้งหมด</button>
+                    <button type="button" class="psg-filter-chip" data-filter="unpracticed">ยังไม่เคยฝึก</button>
+                    <button type="button" class="psg-filter-chip" data-filter="bookmarked">★ บุ๊กมาร์ก</button>
+                </div>
+                <div class="psg-search-wrap">
+                    <input type="text" class="psg-search-input" id="psgSearchInput" placeholder="ค้นหาชื่อบทความ / หัวข้อ / คำศัพท์...">
+                </div>
+            </div>
+
+            <!-- 2-Column Responsive Passage Cards Grid -->
+            <div class="psg-grid" id="psgGrid">
+                <div class="psg-empty-state">กำลังโหลดคลังบทความ A1–C2...</div>
+            </div>
+        </section>
+
+        <!-- ================================================================
+             VIEW 2: READING & SPEAKING STUDIO
+             ================================================================ -->
+        <section class="psg-studio hidden" id="psgStudioView" aria-label="ห้องฝึกอ่านและพูดบทความ">
+            <div class="psg-studio-content">
+                <!-- Studio Header -->
+                <div class="psg-studio-header">
+                    <div class="psg-studio-nav-row">
+                        <button type="button" class="psg-btn-back" id="psgBtnBackToLib">← กลับคลังบทความ</button>
+                        <div class="psg-studio-actions">
+                            <button type="button" class="psg-icon-pill" id="psgBtnBookmark" title="บุ๊กมาร์กบทความนี้">☆ บุ๊กมาร์ก</button>
+                        </div>
+                    </div>
+
+                    <div class="psg-studio-title-row">
+                        <div class="psg-studio-title-block">
+                            <div class="psg-studio-meta-line">
+                                <span class="psg-level-badge" id="psgStudioLevelBadge" data-level="A1">A1</span>
+                            </div>
+                            <h2 class="psg-studio-title" id="psgStudioTitle">Loading...</h2>
+                            <p class="psg-studio-title-th" id="psgStudioTitleTh"></p>
+                        </div>
+
+                        <div class="psg-mode-toggle" role="tablist" aria-label="โหมดการฝึกอ่าน">
+                            <button type="button" class="psg-mode-btn active" id="psgModeFull" role="tab" aria-selected="true">📖 อ่านทั้งบทความ</button>
+                            <button type="button" class="psg-mode-btn" id="psgModeDrill" role="tab" aria-selected="false">🎯 ซ้อมทีละประโยค</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ELSA Speech Analyzer 4-Metric Dashboard (shown after speaking) -->
+                <div class="psg-analyzer hidden" id="psgAnalyzer" aria-live="polite">
+                    <div class="psg-analyzer-grid">
+                        <div class="psg-overall-ring">
+                            <svg viewBox="0 0 84 84" aria-hidden="true">
+                                <circle class="psg-ring-bg" cx="42" cy="42" r="36"></circle>
+                                <circle class="psg-ring-progress" id="psgOverallRingProgress" cx="42" cy="42" r="36" stroke-dasharray="226.195" stroke-dashoffset="226.195"></circle>
+                            </svg>
+                            <div class="psg-overall-center">
+                                <span class="psg-ring-val" id="psgOverallScoreText">0%</span>
+                                <span class="psg-ring-label">Overall</span>
+                            </div>
+                        </div>
+
+                        <div class="psg-metrics-col">
+                            <div class="psg-metrics-grid">
+                                <div class="psg-metric-card">
+                                    <div class="psg-metric-head">
+                                        <span class="psg-metric-label">ออกเสียง</span>
+                                        <span class="psg-metric-val" id="psgPronVal">0%</span>
+                                    </div>
+                                    <div class="psg-metric-bar">
+                                        <div class="psg-metric-fill" id="psgPronBar" style="width: 0%;"></div>
+                                    </div>
+                                </div>
+
+                                <div class="psg-metric-card">
+                                    <div class="psg-metric-head">
+                                        <span class="psg-metric-label">ความคล่อง</span>
+                                        <span class="psg-metric-val" id="psgFluencyVal">0%</span>
+                                    </div>
+                                    <div class="psg-metric-bar">
+                                        <div class="psg-metric-fill" id="psgFluencyBar" style="width: 0%;"></div>
+                                    </div>
+                                    <span class="psg-metric-label" id="psgWpmReadout" style="font-size:10px;opacity:0.85;">0 WPM</span>
+                                </div>
+
+                                <div class="psg-metric-card">
+                                    <div class="psg-metric-head">
+                                        <span class="psg-metric-label">คำศัพท์หลัก</span>
+                                        <span class="psg-metric-val" id="psgKeywordVal">0%</span>
+                                    </div>
+                                    <div class="psg-metric-bar">
+                                        <div class="psg-metric-fill" id="psgKeywordBar" style="width: 0%;"></div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <p class="psg-analyzer-summary">
+                                <strong id="psgAnalyzerTitle">ผลการวิเคราะห์</strong> · <span id="psgAnalyzerSubtitle">แตะคำสีแดงหรือส้มในบทความเพื่อดูคำแนะนำการออกเสียง</span>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Ice-White Reading Card -->
+                <article class="psg-reading-card" id="psgReadingCard">
+                    <!-- Top Audio Controls Bar -->
+                    <div class="psg-audio-bar">
+                        <button type="button" class="psg-audio-btn" id="psgBtnAudioNormal" title="ฟังเสียงเจ้าของภาษา (1.0x)">🔊 1.0x</button>
+                        <button type="button" class="psg-audio-btn" id="psgBtnAudioSlow" title="ฟังเสียงช้า (0.75x)">🐌 0.75x</button>
+                        <input type="range" id="psgAudioProgress" min="0" max="100" value="0" aria-label="แถบความคืบหน้าเสียง" style="flex:1;min-width:90px;accent-color:#3D8AF7;cursor:pointer;">
+                        <span id="psgAudioTime" style="font-family:var(--font-en);font-size:12px;color:#656485;white-space:nowrap;">0:00</span>
+                        <button type="button" class="psg-audio-btn hidden" id="psgBtnPlayUser" title="ฟังเสียงที่คุณอัดไว้">🗣️ เสียงฉัน</button>
+                        <button type="button" class="psg-audio-btn psg-btn-th" id="psgBtnToggleTh" title="แสดง/ซ่อนคำแปลภาษาไทย">แปลไทย</button>
+                    </div>
+
+                    <!-- Optional Drill Mode Helper Banner -->
+                    <div class="hidden" id="psgDrillBanner" style="padding:8px 12px;border-radius:10px;background:#EFF6FF;border:1px solid #BFDBFE;color:#1D4ED8;font-size:12.5px;font-weight:600;">
+                        🎯 โหมดซ้อมทีละประโยค — แตะที่ประโยคที่ต้องการ แล้วกดไมค์เพื่อฝึกพูดทีละประโยค
+                    </div>
+
+                    <!-- Multi-Paragraph Reading Content -->
+                    <div class="psg-paragraphs" id="psgParagraphs"></div>
+
+                    <!-- Key Vocabulary Strip -->
+                    <div class="psg-vocab-strip" id="psgVocabStrip"></div>
+
+                    <!-- Collapsible Thai Translation Panel -->
+                    <div class="psg-th-panel hidden" id="psgThPanel"></div>
+                </article>
+            </div>
+
+            <!-- Floating Word Inspector Popover -->
+            <div class="psg-word-popover hidden" id="psgWordPopover" role="dialog" aria-label="รายละเอียดการออกเสียงคำศัพท์">
+                <div class="psg-popover-head">
+                    <div class="psg-popover-word-wrap">
+                        <span class="psg-popover-word" id="psgPopoverWord">word</span>
+                        <span class="psg-popover-ipa" id="psgPopoverIpa"></span>
+                    </div>
+                    <button type="button" class="psg-popover-close" id="psgPopoverClose" aria-label="ปิด">&times;</button>
+                </div>
+                <p class="psg-popover-heard" id="psgPopoverSpoken"></p>
+                <p class="psg-popover-tip" id="psgPopoverTip"></p>
+                <button type="button" class="psg-popover-speak-btn" id="psgPopoverSpeak">🔊 ฟังคำนี้</button>
+            </div>
+
+            <!-- Sticky Bottom Recording Dock -->
+            <footer class="psg-dock">
+                <!-- 16-Bar Live Audio Waveform -->
+                <div class="psg-waveform hidden" id="psgWaveform" aria-hidden="true">
+                    <span class="psg-wave-bar"></span><span class="psg-wave-bar"></span><span class="psg-wave-bar"></span><span class="psg-wave-bar"></span>
+                    <span class="psg-wave-bar"></span><span class="psg-wave-bar"></span><span class="psg-wave-bar"></span><span class="psg-wave-bar"></span>
+                    <span class="psg-wave-bar"></span><span class="psg-wave-bar"></span><span class="psg-wave-bar"></span><span class="psg-wave-bar"></span>
+                    <span class="psg-wave-bar"></span><span class="psg-wave-bar"></span><span class="psg-wave-bar"></span><span class="psg-wave-bar"></span>
+                </div>
+
+                <!-- Elapsed Timer + Live Interim Transcript -->
+                <div class="psg-dock-status">
+                    <span class="psg-timer" id="psgTimer">00:00</span>
+                    <span id="psgMicHint">แตะเพื่อเริ่มอ่านออกเสียง</span>
+                </div>
+                <p class="psg-interim" id="psgInterim"></p>
+
+                <!-- Mic Button OR Post-Evaluation Retry / Next CTA Row -->
+                <div class="psg-dock-controls">
+                    <button type="button" class="psg-mic-btn" id="psgMicBtn" aria-label="แตะเพื่อเริ่มอัดเสียง">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"></path>
+                            <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                            <line x1="12" y1="19" x2="12" y2="22"></line>
+                        </svg>
+                    </button>
+
+                    <div class="psg-footer-btns hidden" id="psgFooterBtns">
+                        <button type="button" class="psg-btn-retry" id="psgBtnRetry">ลองอีกครั้ง ↻</button>
+                        <button type="button" class="psg-btn-primary" id="psgBtnNext">บทความถัดไป →</button>
+                    </div>
+
+                    <button type="button" class="psg-kbd-btn" id="psgBtnToggleFallback" title="พิมพ์/วางข้อความทดสอบ" aria-label="เปิดช่องพิมพ์ทดสอบ" aria-expanded="false">⌨️</button>
+                </div>
+
+                <!-- Hidden-by-Default Typing Simulation Fallback Bar -->
+                <div class="psg-fallback-bar hidden" id="psgFallbackBar">
+                    <input type="text" class="psg-fallback-input" id="psgFallbackInput" placeholder="พิมพ์หรือวางข้อความภาษาอังกฤษเพื่อทดสอบระบบวิเคราะห์...">
+                    <button type="button" class="psg-fallback-btn" id="psgFallbackSubmit">วิเคราะห์</button>
+                </div>
+            </footer>
+        </section>
+    </div>
+
+    <!-- Scripts -->
+    <script src="elsa-shadowing.js"></script>
+    <script src="passages.js"></script>
+</body>
+
+</html>

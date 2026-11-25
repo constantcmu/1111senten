@@ -10,5 +10,7 @@ user_progress.json
 .env
 local-config.js
 pregenerate_all_audio.py
+pregenerate_passages_audio.py
+
 
 

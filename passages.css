@@ -1,0 +1,1595 @@
+/* ==========================================================================
+   ELSA Speak Premium — CEFR A1–C2 Long Passage Speaking Studio Stylesheet
+   Cohesive with ELSA Speak dark-indigo/violet studio backdrop & ice-white
+   reading cards, optimized for long-form passages, 4-metric Speech Analyzer,
+   live word tracking, interactive word inspection, and sentence drill mode.
+   ========================================================================== */
+
+:root {
+    /* Studio Backdrop Tokens */
+    --psg-bg-top: #342A4F;
+    --psg-bg-upper: #4A3963;
+    --psg-bg-mid: #262E57;
+    --psg-bg-lower: #1E2046;
+    --psg-bg-bottom: #1B173C;
+
+    /* ELSA Accent & Semantic Status Tokens */
+    --psg-blue: #3D8AF7;
+    --psg-blue-hover: #2E7BE8;
+    --psg-cyan: #59AAE4;
+    --psg-icon-blue: #4295DD;
+    --psg-btn-dark: #322E50;
+    --psg-btn-dark-hover: #3E3963;
+
+    --psg-card-bg: linear-gradient(180deg, #F7F8FC 0%, #F5F6FA 65%, #EDF3FC 100%);
+    --psg-card-border: #DDE3F0;
+    --psg-text-dark: #1E2040;
+    --psg-text-sub: #616480;
+    --psg-text-muted: #7C809A;
+
+    --psg-good: #236B3F;
+    --psg-good-bg: #DCFCE7;
+    --psg-warn: #D9651F;
+    --psg-warn-bg: #FFEDD5;
+    --psg-bad: #C93D3C;
+    --psg-bad-bg: #FEE2E2;
+    --psg-ring-track: rgba(255, 255, 255, 0.14);
+
+    /* CEFR Level Accent Tokens */
+    --cefr-a1: #22c55e;
+    --cefr-a2: #06b6d4;
+    --cefr-b1: #3b82f6;
+    --cefr-b2: #6366f1;
+    --cefr-c1: #a855f7;
+    --cefr-c2: #f59e0b;
+
+    /* Typography */
+    --font-en: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-th: 'Noto Sans Thai', 'Prompt', sans-serif;
+}
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    min-height: 100%;
+    min-height: 100dvh;
+    background-color: var(--psg-bg-bottom);
+    background-image:
+        radial-gradient(ellipse 70% 34% at 50% 24%, rgba(89, 170, 228, 0.16), transparent 68%),
+        radial-gradient(ellipse 68% 36% at 50% 56%, rgba(82, 102, 138, 0.34), transparent 74%),
+        linear-gradient(180deg,
+            var(--psg-bg-top) 0%,
+            var(--psg-bg-upper) 14%,
+            var(--psg-bg-mid) 42%,
+            var(--psg-bg-lower) 64%,
+            var(--psg-bg-bottom) 84%,
+            var(--psg-bg-bottom) 100%);
+    background-attachment: fixed;
+    color: #FFFFFF;
+    font-family: var(--font-th), var(--font-en);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+}
+
+.hidden {
+    display: none !important;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid var(--psg-cyan);
+    outline-offset: 2px;
+}
+
+/* ==========================================================================
+   1. Wide-Friendly Responsive Shell & Topbar
+   ========================================================================== */
+.psg-shell {
+    position: relative;
+    width: 100%;
+    max-width: 780px;
+    min-height: 100dvh;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.psg-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 25;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 13px 16px;
+    background: rgba(34, 28, 66, 0.78);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+}
+
+.psg-back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #FFFFFF;
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background-color 0.2s ease, transform 0.15s ease;
+}
+
+.psg-back-link:hover {
+    background: rgba(255, 255, 255, 0.18);
+}
+
+.psg-back-link:active {
+    transform: scale(0.96);
+}
+
+.psg-topbar-center {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+}
+
+.psg-topbar-title {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: #FFFFFF;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.psg-premium-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.26) 0%, rgba(168, 85, 247, 0.28) 100%);
+    border: 1px solid rgba(251, 191, 36, 0.42);
+    color: #FDE68A;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.psg-mastery-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    background: rgba(89, 170, 228, 0.16);
+    border: 1px solid rgba(89, 170, 228, 0.34);
+    color: #BAE6FD;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* ==========================================================================
+   2. Library View (CEFR A1–C2 Tabs, Filters, Search & Responsive Grid)
+   ========================================================================== */
+.psg-library {
+    padding: 16px 16px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex: 1;
+}
+
+/* CEFR 6-Level Pill Tabs */
+.psg-cefr-tabs {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.psg-cefr-tab {
+    --tab-accent: var(--psg-blue);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 9px 6px;
+    border-radius: 14px;
+    border: 1.5px solid rgba(255, 255, 255, 0.11);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(241, 245, 249, 0.86);
+    font-family: var(--font-en), var(--font-th);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.psg-cefr-tab[data-level="A1"] { --tab-accent: var(--cefr-a1); }
+.psg-cefr-tab[data-level="A2"] { --tab-accent: var(--cefr-a2); }
+.psg-cefr-tab[data-level="B1"] { --tab-accent: var(--cefr-b1); }
+.psg-cefr-tab[data-level="B2"] { --tab-accent: var(--cefr-b2); }
+.psg-cefr-tab[data-level="C1"] { --tab-accent: var(--cefr-c1); }
+.psg-cefr-tab[data-level="C2"] { --tab-accent: var(--cefr-c2); }
+
+.psg-cefr-tab:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.22);
+    transform: translateY(-1px);
+}
+
+.psg-cefr-tab.active {
+    background: color-mix(in srgb, var(--tab-accent) 22%, rgba(20, 20, 48, 0.85));
+    border-color: var(--tab-accent);
+    color: #FFFFFF;
+    box-shadow: 0 6px 18px color-mix(in srgb, var(--tab-accent) 32%, transparent);
+}
+
+.psg-cefr-code {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    color: var(--tab-accent);
+}
+
+.psg-cefr-tab.active .psg-cefr-code {
+    color: #FFFFFF;
+}
+
+.psg-cefr-count {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(226, 232, 240, 0.72);
+}
+
+.psg-cefr-tab.active .psg-cefr-count {
+    color: rgba(255, 255, 255, 0.92);
+}
+
+/* Filter Row & Search Input */
+.psg-filter-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.psg-filter-chips {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+}
+
+.psg-filter-chip {
+    padding: 6px 13px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(226, 232, 240, 0.84);
+    font-family: var(--font-th), var(--font-en);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.18s ease;
+}
+
+.psg-filter-chip:hover:not(.active) {
+    background: rgba(255, 255, 255, 0.13);
+    color: #FFFFFF;
+}
+
+.psg-filter-chip.active {
+    background: #F3F4F6;
+    border-color: #F3F4F6;
+    color: #100C2F;
+    box-shadow: 0 3px 10px rgba(10, 8, 30, 0.25);
+}
+
+.psg-search-wrap {
+    flex: 1 1 220px;
+    max-width: 300px;
+    position: relative;
+}
+
+.psg-search-input {
+    width: 100%;
+    padding: 8px 13px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(15, 16, 40, 0.56);
+    color: #FFFFFF;
+    font-family: var(--font-th), var(--font-en);
+    font-size: 13px;
+    transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.psg-search-input::placeholder {
+    color: rgba(148, 163, 184, 0.72);
+}
+
+.psg-search-input:focus {
+    border-color: var(--psg-cyan);
+    background: rgba(15, 16, 40, 0.8);
+}
+
+/* Passage Cards Grid (2 columns desktop, 1 column mobile) */
+.psg-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.psg-card-item {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 15px 16px;
+    border-radius: 18px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.09) 0%, rgba(255, 255, 255, 0.04) 100%);
+    color: #FFFFFF;
+    text-align: left;
+    cursor: pointer;
+    transition: transform 0.18s ease, border-color 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.psg-card-item:hover {
+    transform: translateY(-2px);
+    border-color: rgba(89, 170, 228, 0.45);
+    background: linear-gradient(155deg, rgba(255, 255, 255, 0.13) 0%, rgba(255, 255, 255, 0.06) 100%);
+    box-shadow: 0 12px 26px rgba(10, 8, 30, 0.34);
+}
+
+.psg-card-item:active {
+    transform: scale(0.985);
+}
+
+.psg-card-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.psg-card-badges {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.psg-level-badge {
+    --lvl-color: var(--psg-blue);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2px 8px;
+    border-radius: 7px;
+    font-family: var(--font-en);
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.03em;
+    background: color-mix(in srgb, var(--lvl-color) 22%, transparent);
+    border: 1px solid color-mix(in srgb, var(--lvl-color) 55%, transparent);
+    color: #FFFFFF;
+}
+
+.psg-level-badge[data-level="A1"] { --lvl-color: var(--cefr-a1); }
+.psg-level-badge[data-level="A2"] { --lvl-color: var(--cefr-a2); }
+.psg-level-badge[data-level="B1"] { --lvl-color: var(--cefr-b1); }
+.psg-level-badge[data-level="B2"] { --lvl-color: var(--cefr-b2); }
+.psg-level-badge[data-level="C1"] { --lvl-color: var(--cefr-c1); }
+.psg-level-badge[data-level="C2"] { --lvl-color: var(--cefr-c2); }
+
+.psg-card-num {
+    font-family: var(--font-en);
+    font-size: 11.5px;
+    font-weight: 600;
+    color: rgba(203, 213, 225, 0.72);
+}
+
+.psg-best-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-family: var(--font-en), var(--font-th);
+    font-size: 11px;
+    font-weight: 700;
+    background: rgba(255, 255, 255, 0.12);
+    color: #E2E8F0;
+    white-space: nowrap;
+}
+
+.psg-best-pill.level-good {
+    background: rgba(34, 197, 94, 0.22);
+    color: #86EFAC;
+}
+
+.psg-best-pill.level-warn {
+    background: rgba(245, 158, 11, 0.24);
+    color: #FDE68A;
+}
+
+.psg-best-pill.level-bad {
+    background: rgba(239, 68, 68, 0.24);
+    color: #FCA5A5;
+}
+
+.psg-card-title {
+    margin: 0;
+    font-family: var(--font-en);
+    font-size: 15.5px;
+    font-weight: 700;
+    color: #FFFFFF;
+    line-height: 1.35;
+}
+
+.psg-card-title-th {
+    margin: -3px 0 0;
+    font-size: 12.5px;
+    color: rgba(203, 213, 225, 0.8);
+    line-height: 1.4;
+}
+
+.psg-card-meta {
+    margin-top: auto;
+    padding-top: 6px;
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 11.5px;
+    color: rgba(148, 163, 184, 0.9);
+}
+
+.psg-topic-tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.07);
+    color: #CBD5E1;
+    font-size: 11px;
+    font-weight: 500;
+    max-width: 58%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.psg-card-stats {
+    white-space: nowrap;
+    font-family: var(--font-en), var(--font-th);
+}
+
+.psg-empty-state {
+    grid-column: 1 / -1;
+    padding: 36px 20px;
+    text-align: center;
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px dashed rgba(255, 255, 255, 0.16);
+    color: rgba(203, 213, 225, 0.8);
+    font-size: 14px;
+}
+
+/* ==========================================================================
+   3. Reading Studio View
+   ========================================================================== */
+.psg-studio {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+
+.psg-studio-content {
+    padding: 14px 16px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex: 1;
+}
+
+/* Studio Header */
+.psg-studio-header {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.psg-studio-nav-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.psg-btn-back {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.08);
+    color: #FFFFFF;
+    font-family: var(--font-th), var(--font-en);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.psg-btn-back:hover {
+    background: rgba(255, 255, 255, 0.16);
+}
+
+.psg-studio-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.psg-icon-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    height: 34px;
+    padding: 0 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.08);
+    color: rgba(241, 245, 249, 0.9);
+    font-family: var(--font-th), var(--font-en);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.psg-icon-pill:hover {
+    background: rgba(255, 255, 255, 0.16);
+}
+
+.psg-icon-pill.bookmarked,
+.psg-icon-pill.active {
+    background: rgba(245, 158, 11, 0.24);
+    border-color: rgba(251, 191, 36, 0.55);
+    color: #FDE68A;
+}
+
+.psg-studio-title-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.psg-studio-title-block {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+    flex: 1 1 260px;
+}
+
+.psg-studio-meta-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.psg-studio-title {
+    margin: 0;
+    font-family: var(--font-en);
+    font-size: 21px;
+    font-weight: 800;
+    color: #FFFFFF;
+    line-height: 1.28;
+}
+
+.psg-studio-title-th {
+    margin: 0;
+    font-size: 13.5px;
+    color: rgba(203, 213, 225, 0.85);
+}
+
+/* Mode Toggle: Full Passage vs Sentence Drill */
+.psg-mode-toggle {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px;
+    border-radius: 999px;
+    background: rgba(15, 16, 40, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    align-self: flex-start;
+    flex-shrink: 0;
+}
+
+.psg-mode-btn {
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: rgba(226, 232, 240, 0.82);
+    font-family: var(--font-th), var(--font-en);
+    font-size: 12.5px;
+    font-weight: 600;
+    padding: 6px 13px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.2s ease;
+}
+
+.psg-mode-btn:hover:not(.active) {
+    color: #FFFFFF;
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.psg-mode-btn.active {
+    background: #F3F4F6;
+    color: #100C2F;
+    box-shadow: 0 2px 8px rgba(10, 8, 30, 0.28);
+}
+
+/* ==========================================================================
+   4. ELSA Speech Analyzer 4-Metric Dashboard
+   ========================================================================== */
+.psg-analyzer {
+    padding: 16px;
+    border-radius: 20px;
+    background: linear-gradient(145deg, rgba(255, 255, 255, 0.11) 0%, rgba(255, 255, 255, 0.05) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 14px 32px rgba(8, 7, 26, 0.34);
+    animation: psg-fade-slide 0.26s ease;
+}
+
+.psg-analyzer-grid {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+}
+
+/* Left: Large 84px Overall Circular Score Ring */
+.psg-overall-ring {
+    position: relative;
+    width: 88px;
+    height: 88px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.psg-overall-ring svg {
+    width: 84px;
+    height: 84px;
+    overflow: visible;
+}
+
+.psg-ring-bg {
+    fill: none;
+    stroke: var(--psg-ring-track);
+    stroke-width: 7;
+}
+
+.psg-ring-progress {
+    fill: none;
+    stroke: var(--psg-cyan);
+    stroke-width: 7;
+    stroke-linecap: round;
+    transform: rotate(-90deg);
+    transform-origin: 50% 50%;
+    transition: stroke-dashoffset 0.75s cubic-bezier(0.22, 1, 0.36, 1), stroke 0.25s ease;
+}
+
+.psg-overall-center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    pointer-events: none;
+}
+
+.psg-ring-val {
+    font-family: var(--font-en);
+    font-size: 21px;
+    font-weight: 800;
+    line-height: 1;
+    color: #FFFFFF;
+}
+
+.psg-ring-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: rgba(203, 213, 225, 0.8);
+    margin-top: 2px;
+}
+
+.psg-analyzer.status-correct .psg-ring-progress { stroke: #4ADE80; }
+.psg-analyzer.status-correct .psg-ring-val { color: #86EFAC; }
+.psg-analyzer.status-almost .psg-ring-progress { stroke: #FB923C; }
+.psg-analyzer.status-almost .psg-ring-val { color: #FDBA74; }
+.psg-analyzer.status-incorrect .psg-ring-progress { stroke: #F87171; }
+.psg-analyzer.status-incorrect .psg-ring-val { color: #FCA5A5; }
+
+/* Right: 3 Sleek Metric Progress Cards */
+.psg-metrics-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.psg-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+}
+
+.psg-metric-card {
+    padding: 9px 10px;
+    border-radius: 13px;
+    background: rgba(15, 16, 40, 0.52);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.psg-metric-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 4px;
+}
+
+.psg-metric-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(203, 213, 225, 0.82);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.psg-metric-val {
+    font-family: var(--font-en);
+    font-size: 13.5px;
+    font-weight: 800;
+    color: #FFFFFF;
+    white-space: nowrap;
+}
+
+.psg-metric-bar {
+    width: 100%;
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+}
+
+.psg-metric-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: var(--psg-cyan);
+    transition: width 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.psg-metric-fill.level-good { background: #4ADE80; }
+.psg-metric-fill.level-warn { background: #FB923C; }
+.psg-metric-fill.level-bad { background: #F87171; }
+
+.psg-analyzer-summary {
+    margin: 2px 0 0;
+    font-size: 12.5px;
+    color: #E2E8F0;
+    line-height: 1.45;
+}
+
+/* ==========================================================================
+   5. Crisp Ice-White Reading Card
+   ========================================================================== */
+.psg-reading-card {
+    position: relative;
+    padding: 18px 20px 20px;
+    border-radius: 22px;
+    background: var(--psg-card-bg);
+    color: var(--psg-text-dark);
+    box-shadow:
+        0 18px 40px rgba(8, 7, 26, 0.38),
+        0 2px 8px rgba(16, 12, 47, 0.1);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+/* Audio Player Bar inside Card Top */
+.psg-audio-bar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--psg-card-border);
+}
+
+.psg-audio-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(66, 149, 221, 0.28);
+    background: rgba(66, 149, 221, 0.08);
+    color: #2472BA;
+    font-family: var(--font-th), var(--font-en);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.18s ease, color 0.18s ease, transform 0.14s ease, border-color 0.18s ease;
+}
+
+.psg-audio-btn:hover:not(:disabled) {
+    background: rgba(66, 149, 221, 0.16);
+    border-color: rgba(66, 149, 221, 0.5);
+}
+
+.psg-audio-btn:active:not(:disabled) {
+    transform: scale(0.96);
+}
+
+.psg-audio-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.psg-audio-btn.playing,
+.psg-audio-btn.active {
+    background: var(--psg-blue);
+    border-color: var(--psg-blue);
+    color: #FFFFFF;
+    box-shadow: 0 4px 12px rgba(61, 138, 247, 0.32);
+}
+
+.psg-audio-btn.loading {
+    opacity: 0.72;
+    pointer-events: none;
+}
+
+.psg-audio-btn.psg-btn-th {
+    margin-left: auto;
+    border-color: #CBD5E1;
+    background: #FFFFFF;
+    color: var(--psg-text-sub);
+}
+
+.psg-audio-btn.psg-btn-th.active {
+    background: #1E2040;
+    border-color: #1E2040;
+    color: #FFFFFF;
+}
+
+.psg-audio-progress-wrap {
+    flex: 1 1 90px;
+    min-width: 72px;
+    height: 6px;
+    border-radius: 999px;
+    background: #DCE3F0;
+    overflow: hidden;
+}
+
+.psg-audio-progress-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #59AAE4 0%, #3D8AF7 100%);
+    transition: width 0.2s linear;
+}
+
+/* Passage Paragraphs & Word Tokens */
+.psg-paragraphs {
+    font-family: var(--font-en);
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.9;
+    color: var(--psg-text-dark);
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.psg-paragraph {
+    margin: 0;
+}
+
+/* Sentence Drill Block */
+.psg-sentence-block {
+    display: inline;
+    border-radius: 8px;
+    padding: 2px 3px;
+    transition: background-color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.psg-paragraphs.is-drill-mode .psg-sentence-block {
+    cursor: pointer;
+}
+
+.psg-paragraphs.is-drill-mode .psg-sentence-block:hover {
+    background: rgba(61, 138, 247, 0.08);
+}
+
+.psg-sentence-block.drill-active {
+    background: rgba(61, 138, 247, 0.14);
+    box-shadow: 0 0 0 1.5px rgba(61, 138, 247, 0.45);
+}
+
+/* Individual Words */
+.psg-w {
+    display: inline;
+    border-radius: 5px;
+    padding: 1px 2px;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+/* Live Reading Tracker States */
+.psg-w.is-spoken {
+    color: #1D4ED8;
+    background: rgba(59, 130, 246, 0.1);
+}
+
+.psg-w.is-current {
+    background: rgba(61, 138, 247, 0.22);
+    color: #0F172A;
+    box-shadow: 0 0 0 1.5px rgba(61, 138, 247, 0.5);
+}
+
+/* Evaluated Word Color Levels */
+.psg-w.is-evaluated {
+    cursor: pointer;
+}
+
+.psg-w.is-evaluated:hover {
+    background: rgba(15, 23, 42, 0.08);
+}
+
+.psg-w.level-good {
+    color: var(--psg-good);
+}
+
+.psg-w.level-warn {
+    color: var(--psg-warn);
+    text-decoration: underline;
+    text-decoration-color: rgba(217, 101, 31, 0.5);
+    text-underline-offset: 4px;
+    text-decoration-thickness: 1.8px;
+}
+
+.psg-w.level-bad {
+    color: var(--psg-bad);
+    text-decoration: underline;
+    text-decoration-color: var(--psg-bad);
+    text-underline-offset: 4px;
+    text-decoration-thickness: 2px;
+    text-decoration-skip-ink: none;
+    cursor: pointer;
+}
+
+.psg-w.is-selected {
+    background: rgba(61, 138, 247, 0.18);
+    box-shadow: 0 0 0 1.5px rgba(61, 138, 247, 0.5);
+}
+
+/* Key Vocabulary Strip */
+.psg-vocab-section {
+    padding-top: 12px;
+    border-top: 1px solid var(--psg-card-border);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.psg-vocab-label {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--psg-text-sub);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.psg-vocab-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+}
+
+.psg-vocab-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 11px;
+    border-radius: 999px;
+    border: 1px solid #D5DEEF;
+    background: #FFFFFF;
+    color: var(--psg-text-dark);
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: border-color 0.18s ease, background-color 0.18s ease, transform 0.14s ease;
+}
+
+.psg-vocab-pill:hover {
+    border-color: var(--psg-blue);
+    background: #EFF6FF;
+}
+
+.psg-vocab-pill.playing {
+    border-color: var(--psg-blue);
+    background: #DBEAFE;
+}
+
+.psg-vocab-word {
+    font-family: var(--font-en);
+    font-weight: 700;
+    color: #1E3A8A;
+}
+
+.psg-vocab-ipa {
+    font-family: 'Segoe UI', 'Lucida Sans Unicode', var(--font-en);
+    font-size: 12px;
+    color: var(--psg-text-muted);
+}
+
+.psg-vocab-th {
+    font-size: 12px;
+    color: var(--psg-text-sub);
+}
+
+/* Expandable Thai Translation Panel */
+.psg-th-panel {
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: #EBF1FA;
+    border: 1px solid #D5E0F2;
+    color: #27294B;
+    font-size: 14px;
+    line-height: 1.7;
+    animation: psg-fade-slide 0.2s ease;
+}
+
+.psg-th-panel-label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--psg-text-sub);
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* ==========================================================================
+   6. Floating Word Inspector Popover
+   ========================================================================== */
+.psg-word-popover {
+    position: fixed;
+    left: 50%;
+    bottom: 148px;
+    transform: translateX(-50%);
+    z-index: 60;
+    width: min(420px, calc(100vw - 28px));
+    padding: 15px 16px;
+    border-radius: 18px;
+    background: #FFFFFF;
+    color: var(--psg-text-dark);
+    border: 1px solid #D6DFF0;
+    box-shadow:
+        0 20px 44px rgba(10, 8, 32, 0.45),
+        0 4px 12px rgba(16, 12, 47, 0.14);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    animation: psg-fade-slide 0.18s ease;
+}
+
+.psg-popover-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.psg-popover-word-wrap {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.psg-popover-word {
+    font-family: var(--font-en);
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--psg-text-dark);
+}
+
+.psg-popover-word.level-good { color: var(--psg-good); }
+.psg-popover-word.level-warn { color: var(--psg-warn); }
+.psg-popover-word.level-bad { color: var(--psg-bad); }
+
+.psg-popover-ipa {
+    font-family: 'Segoe UI', 'Lucida Sans Unicode', var(--font-en);
+    font-size: 13.5px;
+    color: var(--psg-text-muted);
+}
+
+.psg-popover-close {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: none;
+    background: #EEF2F8;
+    color: var(--psg-text-sub);
+    font-size: 15px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+}
+
+.psg-popover-close:hover {
+    background: #DCE4F2;
+    color: var(--psg-text-dark);
+}
+
+.psg-popover-heard {
+    font-size: 13px;
+    color: var(--psg-text-sub);
+    margin: 0;
+}
+
+.psg-popover-heard strong {
+    color: var(--psg-text-dark);
+}
+
+.psg-popover-tip {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 10px;
+    background: #F1F5FB;
+    font-size: 13px;
+    color: #334155;
+    line-height: 1.48;
+}
+
+.psg-popover-speak-btn {
+    align-self: flex-start;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    border: none;
+    background: var(--psg-blue);
+    color: #FFFFFF;
+    font-family: var(--font-th), var(--font-en);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.18s ease;
+}
+
+.psg-popover-speak-btn:hover {
+    background: var(--psg-blue-hover);
+}
+
+/* ==========================================================================
+   7. Sticky Bottom Recording Dock & Typing Fallback
+   ========================================================================== */
+.psg-dock {
+    position: sticky;
+    bottom: 0;
+    z-index: 30;
+    margin-top: auto;
+    padding: 12px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(180deg, rgba(27, 23, 60, 0.88) 0%, rgba(22, 19, 50, 0.98) 100%);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 0 -10px 30px rgba(8, 7, 26, 0.45);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+}
+
+/* 16-Bar Live Audio Waveform */
+.psg-waveform {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: 26px;
+}
+
+.psg-wave-bar {
+    width: 3.5px;
+    height: 4px;
+    min-height: 4px;
+    max-height: 26px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #93D5FF 0%, #3D8AF7 100%);
+    transition: height 0.07s ease;
+    will-change: height;
+}
+
+.psg-dock-status {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    width: 100%;
+    font-size: 12.5px;
+    color: rgba(226, 232, 240, 0.84);
+}
+
+.psg-timer {
+    font-family: var(--font-en);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #93D5FF;
+    padding: 2px 9px;
+    border-radius: 999px;
+    background: rgba(89, 170, 228, 0.14);
+}
+
+.psg-interim {
+    margin: 0;
+    font-size: 12.5px;
+    font-style: italic;
+    color: #BAE6FD;
+    text-align: center;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.psg-dock-controls {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+
+/* ELSA Blue Squircle Mic Button */
+.psg-mic-btn {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    border-radius: 17px;
+    border: none;
+    background: var(--psg-blue);
+    color: #FFFFFF;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 10px 24px rgba(61, 138, 247, 0.44);
+    transition: transform 0.18s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.psg-mic-btn svg {
+    width: 28px;
+    height: 28px;
+}
+
+.psg-mic-btn:hover {
+    background: var(--psg-blue-hover);
+    transform: translateY(-1px) scale(1.03);
+}
+
+.psg-mic-btn:active {
+    transform: scale(0.95);
+}
+
+.psg-mic-btn.recording {
+    background: var(--psg-bad);
+    box-shadow: 0 0 0 0 rgba(201, 61, 60, 0.65);
+    animation: psg-mic-pulse 1.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Post-Evaluation Dual CTA Row (Retry / Next Passage) */
+.psg-footer-btns {
+    display: flex;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+    max-width: 480px;
+    height: 50px;
+}
+
+.psg-btn-retry,
+.psg-btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 100%;
+    padding: 0 16px;
+    border-radius: 14px;
+    border: none;
+    font-family: var(--font-th), var(--font-en);
+    font-size: 14.5px;
+    font-weight: 600;
+    color: #FFFFFF;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.2s ease, transform 0.14s ease;
+}
+
+.psg-btn-retry {
+    flex: 2;
+    background: var(--psg-btn-dark);
+}
+
+.psg-btn-retry:hover {
+    background: var(--psg-btn-dark-hover);
+}
+
+.psg-btn-primary {
+    flex: 3;
+    background: var(--psg-blue);
+    box-shadow: 0 8px 20px rgba(61, 138, 247, 0.36);
+}
+
+.psg-btn-primary:hover {
+    background: var(--psg-blue-hover);
+}
+
+.psg-btn-retry:active,
+.psg-btn-primary:active {
+    transform: scale(0.98);
+}
+
+/* Subtle Keyboard Fallback Toggle Button */
+.psg-kbd-btn {
+    position: absolute;
+    right: 0;
+    width: 34px;
+    height: 34px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.07);
+    color: rgba(226, 232, 240, 0.78);
+    font-size: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+.psg-kbd-btn:hover,
+.psg-kbd-btn.active {
+    background: rgba(89, 170, 228, 0.24);
+    color: #93D5FF;
+}
+
+/* Typing Simulation Fallback Bar */
+.psg-fallback-bar {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border-radius: 14px;
+    background: rgba(15, 16, 40, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    animation: psg-fade-slide 0.18s ease;
+}
+
+.psg-fallback-input {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.06);
+    color: #FFFFFF;
+    font-family: var(--font-en), var(--font-th);
+    font-size: 13px;
+}
+
+.psg-fallback-input::placeholder {
+    color: rgba(203, 213, 225, 0.56);
+}
+
+.psg-fallback-btn {
+    padding: 8px 14px;
+    border-radius: 10px;
+    border: none;
+    background: var(--psg-blue);
+    color: #FFFFFF;
+    font-family: var(--font-th), var(--font-en);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.psg-fallback-btn:hover {
+    background: var(--psg-blue-hover);
+}
+
+/* Toast Notification */
+.psg-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 104px;
+    transform: translate(-50%, 14px);
+    z-index: 120;
+    padding: 9px 16px;
+    border-radius: 999px;
+    background: rgba(24, 24, 56, 0.95);
+    border: 1px solid rgba(89, 170, 228, 0.36);
+    color: #FFFFFF;
+    font-size: 12.5px;
+    font-weight: 500;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease, transform 0.22s ease;
+    white-space: nowrap;
+    max-width: calc(100vw - 32px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.psg-toast.show {
+    opacity: 1;
+    transform: translate(-50%, 0);
+}
+
+/* ==========================================================================
+   8. Animations & Mobile Responsive Tweaks
+   ========================================================================== */
+@keyframes psg-mic-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(201, 61, 60, 0.65);
+    }
+    70% {
+        box-shadow: 0 0 0 18px rgba(201, 61, 60, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(201, 61, 60, 0);
+    }
+}
+
+@keyframes psg-fade-slide {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (max-width: 620px) {
+    .psg-topbar {
+        padding: 11px 12px;
+    }
+
+    .psg-topbar-title {
+        font-size: 14.5px;
+    }
+
+    .psg-premium-pill {
+        display: none;
+    }
+
+    .psg-cefr-tabs {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .psg-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .psg-search-wrap {
+        max-width: none;
+        flex-basis: 100%;
+    }
+
+    .psg-analyzer-grid {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .psg-overall-ring {
+        margin: 0 auto;
+    }
+
+    .psg-metrics-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .psg-reading-card {
+        padding: 15px 15px 16px;
+        border-radius: 18px;
+    }
+
+    .psg-paragraphs {
+        font-size: 16.5px;
+        line-height: 1.85;
+    }
+
+    .psg-studio-title {
+        font-size: 18.5px;
+    }
+
+    .psg-word-popover {
+        bottom: 136px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .psg-mic-btn.recording,
+    .psg-analyzer,
+    .psg-th-panel,
+    .psg-word-popover,
+    .psg-fallback-bar {
+        animation: none;
+    }
+
+    .psg-ring-progress,
+    .psg-metric-fill,
+    .psg-wave-bar {
+        transition: none;
+    }
+}
