@@ -118,7 +118,7 @@ select:focus-visible {
 
     .elsa-stage {
         min-height: min(860px, calc(100dvh - 36px));
-        max-height: 920px;
+        max-height: calc(100dvh - 28px);
         border-radius: 30px;
         background:
             radial-gradient(ellipse 68% 34% at 50% 46%, rgba(82, 102, 138, 0.36), transparent 72%),
@@ -133,7 +133,23 @@ select:focus-visible {
         box-shadow:
             0 28px 68px rgba(8, 7, 26, 0.72),
             0 0 0 1px rgba(255, 255, 255, 0.04) inset;
-        overflow: hidden;
+        overflow-y: auto;
+        overflow-x: hidden;
+        scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
+    }
+
+    .elsa-stage::-webkit-scrollbar {
+        width: 5px;
+    }
+
+    .elsa-stage::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.18);
+        border-radius: 999px;
+    }
+
+    .elsa-stage::-webkit-scrollbar-track {
+        background: transparent;
     }
 }
 
@@ -931,6 +947,71 @@ select:focus-visible {
     color: var(--elsa-incorrect);
 }
 
+/* Best Score Pill Badge (Card Header & Category Sheet Items) */
+.elsa-card-badge-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 7px;
+}
+
+.elsa-card-badge-row .elsa-badge {
+    margin-bottom: 0;
+}
+
+.elsa-best-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-family: var(--font-th), var(--font-en);
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.4;
+    white-space: nowrap;
+    background: #E2E6F0;
+    color: var(--elsa-text-dark);
+}
+
+.elsa-best-badge.level-good {
+    background: #DCFCE7;
+    color: var(--elsa-correct);
+}
+
+.elsa-best-badge.level-warn {
+    background: #FFEDD5;
+    color: #C25314;
+}
+
+.elsa-best-badge.level-bad {
+    background: #FEE2E2;
+    color: var(--elsa-incorrect);
+}
+
+/* Dark-sheet contrast overrides for Best Score Badge */
+.elsa-sheet .elsa-best-badge {
+    background: rgba(255, 255, 255, 0.12);
+    color: #E2E8F0;
+}
+
+.elsa-sheet .elsa-best-badge.level-good {
+    background: rgba(49, 110, 71, 0.34);
+    color: #86EFAC;
+}
+
+.elsa-sheet .elsa-best-badge.level-warn {
+    background: rgba(237, 116, 46, 0.28);
+    color: #FDBA74;
+}
+
+.elsa-sheet .elsa-best-badge.level-bad {
+    background: rgba(204, 76, 75, 0.28);
+    color: #FCA5A5;
+}
+
 /* ==========================================================================
    7. Bottom Controls (Ready Mic + Post-Eval 3:2 Asymmetric CTAs)
    ========================================================================== */
@@ -948,6 +1029,27 @@ select:focus-visible {
     align-items: center;
     width: 100%;
     padding-bottom: 4px;
+}
+
+/* Live Audio Waveform Visualizer (16 vertical bars) */
+.elsa-waveform {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    height: 26px;
+    margin: 0 0 6px;
+}
+
+.elsa-wave-bar {
+    width: 3.5px;
+    height: 4px;
+    min-height: 4px;
+    max-height: 26px;
+    border-radius: 999px;
+    background: linear-gradient(180deg, #93D5FF 0%, #3D8AF7 100%);
+    transition: height 0.07s ease;
+    will-change: height;
 }
 
 .elsa-interim-text {
@@ -1303,6 +1405,15 @@ select:focus-visible {
     gap: 10px;
 }
 
+/* 3-provider layout: 1 full-width primary card on top + 2 secondary cards below */
+.elsa-provider-cards.three-cols {
+    grid-template-columns: 1fr 1fr;
+}
+
+.elsa-provider-cards.three-cols > .elsa-provider-card:first-child {
+    grid-column: 1 / -1;
+}
+
 .elsa-provider-card {
     display: flex;
     flex-direction: column;
@@ -1413,6 +1524,71 @@ select:focus-visible {
     color: #FCA5A5;
 }
 
+/* Disk Cache & Batch Pre-Generation Panel (Localhost Studio v3) */
+.elsa-pregen-box {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    padding: 12px;
+    border-radius: 14px;
+    background: rgba(89, 170, 228, 0.09);
+    border: 1px solid rgba(89, 170, 228, 0.24);
+}
+
+.elsa-pregen-stats {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 12px;
+    color: #E0F2FE;
+    font-weight: 500;
+}
+
+.elsa-pregen-btn {
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 11px;
+    border: 1px solid rgba(89, 170, 228, 0.42);
+    background: rgba(61, 138, 247, 0.24);
+    color: #BAE6FD;
+    font-family: var(--font-th), var(--font-en);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
+}
+
+.elsa-pregen-btn:hover:not(:disabled) {
+    background: rgba(61, 138, 247, 0.4);
+    color: #FFFFFF;
+}
+
+.elsa-pregen-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+}
+
+.elsa-pregen-progress {
+    width: 100%;
+    height: 5px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.12);
+    overflow: hidden;
+}
+
+.elsa-pregen-fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #59AAE4 0%, #3D8AF7 100%);
+    transition: width 0.3s ease;
+}
+
 /* Category Sheet Sentence List */
 .elsa-sentence-list {
     display: flex;
@@ -1464,6 +1640,33 @@ select:focus-visible {
 .elsa-sentence-item-sub {
     font-size: 12px;
     color: rgba(203, 213, 225, 0.72);
+}
+
+/* Load More Button at bottom of #categorySentenceList */
+.elsa-load-more-btn {
+    width: 100%;
+    padding: 10px 12px;
+    margin-top: 4px;
+    border-radius: 12px;
+    background: rgba(89, 170, 228, 0.14);
+    border: 1px dashed rgba(89, 170, 228, 0.4);
+    color: #93D5FF;
+    font-family: var(--font-th), var(--font-en);
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    text-align: center;
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.elsa-load-more-btn:hover {
+    background: rgba(89, 170, 228, 0.24);
+    border-color: rgba(89, 170, 228, 0.65);
+    color: #FFFFFF;
+}
+
+.elsa-load-more-btn:active {
+    transform: scale(0.98);
 }
 
 /* Non-intrusive Toast Notification */

@@ -123,6 +123,67 @@
     return 'en';
   }
 
+  // Module-level Hanzi -> Set<plainPinyin> index (pre-seeded with common Mandarin homophones,
+  // and enriched dynamically via `registerDatasetPinyin(sentences)` from `data.json`).
+  var HANZI_TO_PINYIN_SET = Object.create(null);
+
+  function addHanziPinyin(ch, plainPy) {
+    if (!ch || !plainPy) return;
+    var norm = normalizePinyinSyllable(plainPy);
+    if (!norm) return;
+    if (!HANZI_TO_PINYIN_SET[ch]) {
+      HANZI_TO_PINYIN_SET[ch] = new Set();
+    }
+    HANZI_TO_PINYIN_SET[ch].add(norm);
+  }
+
+  var BUILTIN_ZH_HOMOPHONES = [
+    ['他她它', 'ta'],
+    ['的得地', 'de'],
+    ['在再', 'zai'],
+    ['做作坐座', 'zuo'],
+    ['那哪', 'na'],
+    ['已以一医衣意', 'yi'],
+    ['里理离礼力', 'li'],
+    ['是事市试时十实', 'shi'],
+    ['不步部', 'bu'],
+    ['有友又右', 'you'],
+    ['们门', 'men'],
+    ['花话画', 'hua'],
+    ['机鸡几记级', 'ji'],
+    ['期七气起', 'qi'],
+    ['西息洗喜系', 'xi'],
+    ['生声省', 'sheng'],
+    ['发法', 'fa'],
+    ['么吗嘛', 'ma'],
+    ['么', 'me'],
+    ['了乐', 'le'],
+    ['这着', 'zhe'],
+    ['会回', 'hui'],
+    ['到道', 'dao'],
+    ['想向像', 'xiang'],
+    ['知只之', 'zhi'],
+    ['对队', 'dui'],
+    ['请清轻', 'qing'],
+    ['谢写', 'xie'],
+    ['明名', 'ming'],
+    ['工公', 'gong'],
+    ['可客课', 'ke'],
+    ['今金近进', 'jin'],
+    ['真针', 'zhen'],
+    ['太态', 'tai'],
+    ['好号', 'hao'],
+    ['心新信', 'xin']
+  ];
+
+  BUILTIN_ZH_HOMOPHONES.forEach(function (entry) {
+    var chars = Array.from(entry[0]);
+    var py = entry[1];
+    for (var i = 0; i < chars.length; i++) {
+      addHanziPinyin(chars[i], py);
+    }
+  });
+
   // Common English homophone groups (spoken identically, ASR may pick either)
   const HOMOPHONE_GROUPS = [
     ['to', 'too', 'two'],
@@ -1304,6 +1365,26 @@
       .filter(Boolean);
   }
 
+  /**
+   * Index all Chinese Hanzi -> Pinyin mappings from `data.json` so ASR homophones
+   * (e.g. 她 vs 他, 的 vs 得, 生 vs 声) are scored fairly by pronunciation.
+   */
+  function registerDatasetPinyin(sentences) {
+    if (!Array.isArray(sentences)) return Object.keys(HANZI_TO_PINYIN_SET).length;
+    for (var i = 0; i < sentences.length; i++) {
+      var item = sentences[i];
+      if (!item || !item.ch || !item.py) continue;
+      var parsed = parseTargetZhUnits(item);
+      for (var u = 0; u < parsed.units.length; u++) {
+        var unit = parsed.units[u];
+        if (!unit.isAscii && unit.clean && unit.pinyinPlain) {
+          addHanziPinyin(unit.clean, unit.pinyinPlain);
+        }
+      }
+    }
+    return Object.keys(HANZI_TO_PINYIN_SET).length;
+  }
+
   function zhHanziPairScore(targetUnit, spokenTok) {
     if (!spokenTok) return 0;
     if (targetUnit.clean === spokenTok) return 100;
@@ -1322,6 +1403,25 @@
         ZH_HANZI_TO_DIGIT[targetUnit.clean] === ZH_HANZI_TO_DIGIT[spokenTok]) {
       return 100;
     }
+
+    // Homophone & close-Pinyin phonetic match via HANZI_TO_PINYIN_SET
+    var targetPy = targetUnit.pinyinPlain;
+    var spokenPySet = HANZI_TO_PINYIN_SET[spokenTok];
+    if (targetPy && spokenPySet && spokenPySet.size > 0) {
+      var bestPySim = 0;
+      var targetPyNorm = targetPy.replace(/v/g, 'u');
+      spokenPySet.forEach(function (sp) {
+        if (sp === targetPy || sp.replace(/v/g, 'u') === targetPyNorm) {
+          bestPySim = 100;
+        } else if (bestPySim < 100) {
+          var sim = alignWordCharacters(targetPy, sp).score;
+          if (sim > bestPySim) bestPySim = sim;
+        }
+      });
+      if (bestPySim === 100) return 100;
+      if (bestPySim >= 70) return Math.min(95, bestPySim);
+    }
+
     return 0;
   }
 
@@ -1817,7 +1917,119 @@
       }
     }
 
+    var waveformTimer = null;
+    var audioContext = null;
+    var analyserNode = null;
+    var mediaOnlyMode = false;
+
+    function stopWaveform() {
+      if (waveformTimer) {
+        clearInterval(waveformTimer);
+        waveformTimer = null;
+      }
+      analyserNode = null;
+      if (audioContext) {
+        try {
+          if (typeof audioContext.close === 'function' && audioContext.state !== 'closed') {
+            audioContext.close().catch(function () { /* ignore */ });
+          }
+        } catch (e) { /* ignore */ }
+        audioContext = null;
+      }
+    }
+
+    function startWaveform(stream, mySession) {
+      stopWaveform();
+      if (typeof cbs.onWaveform !== 'function') return;
+      var AudioCtx = (typeof window !== 'undefined')
+        ? (window.AudioContext || window.webkitAudioContext || null)
+        : null;
+      if (!AudioCtx) return;
+
+      try {
+        var ctx = new AudioCtx();
+        var source = ctx.createMediaStreamSource(stream);
+        var analyser = ctx.createAnalyser();
+        analyser.fftSize = 64;
+        analyser.smoothingTimeConstant = 0.65;
+        source.connect(analyser);
+
+        audioContext = ctx;
+        analyserNode = analyser;
+
+        var freqData = new Uint8Array(analyser.frequencyBinCount);
+        var timeData = new Uint8Array(analyser.fftSize);
+
+        waveformTimer = setInterval(function () {
+          if (!isRecording || mySession !== sessionSeq || !analyserNode) {
+            stopWaveform();
+            return;
+          }
+          try {
+            analyserNode.getByteFrequencyData(freqData);
+            analyserNode.getByteTimeDomainData(timeData);
+
+            // Compute 16 normalized bars (0..100) from 32 frequency bins
+            var bars16 = new Array(16);
+            var step = Math.max(1, Math.floor(freqData.length / 16));
+            for (var b = 0; b < 16; b++) {
+              var sum = 0;
+              for (var s = 0; s < step; s++) {
+                sum += freqData[Math.min(freqData.length - 1, b * step + s)] || 0;
+              }
+              var avg = sum / step;
+              bars16[b] = Math.max(0, Math.min(100, Math.round((avg / 255) * 100)));
+            }
+
+            // Compute normalized RMS volume (0..100)
+            var sqSum = 0;
+            for (var t = 0; t < timeData.length; t++) {
+              var centered = (timeData[t] - 128) / 128;
+              sqSum += centered * centered;
+            }
+            var rms = Math.min(100, Math.round(Math.sqrt(sqSum / timeData.length) * 260));
+            safeCall(cbs.onWaveform, bars16, rms);
+          } catch (e) { /* ignore */ }
+        }, 60);
+      } catch (e) {
+        stopWaveform();
+      }
+    }
+
+    function blobToBase64(blob, cb) {
+      if (!blob) {
+        cb('');
+        return;
+      }
+      if (typeof FileReader !== 'undefined') {
+        try {
+          var reader = new FileReader();
+          reader.onloadend = function () {
+            var res = typeof reader.result === 'string' ? reader.result : '';
+            var commaIdx = res.indexOf(',');
+            cb(commaIdx !== -1 ? res.slice(commaIdx + 1) : res);
+          };
+          reader.onerror = function () { cb(''); };
+          reader.readAsDataURL(blob);
+          return;
+        } catch (e) { /* fall through */ }
+      }
+      if (typeof blob.arrayBuffer === 'function') {
+        blob.arrayBuffer().then(function (buf) {
+          var bytes = new Uint8Array(buf);
+          var binary = '';
+          for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          if (typeof btoa === 'function') cb(btoa(binary));
+          else if (typeof Buffer !== 'undefined') cb(Buffer.from(bytes).toString('base64'));
+          else cb('');
+        }).catch(function () { cb(''); });
+        return;
+      }
+      cb('');
+    }
+
     function stopMediaRecorder(immediateRelease) {
+      stopWaveform();
       if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         var mr = mediaRecorder;
         try {
@@ -1846,14 +2058,28 @@
       } catch (e) { /* ignore */ }
     }
 
-    function startMediaCapture(mySession) {
-      if (
-        mediaCaptureDisabled ||
-        typeof navigator === 'undefined' ||
-        !navigator.mediaDevices ||
-        typeof navigator.mediaDevices.getUserMedia !== 'function' ||
-        typeof MediaRecorder === 'undefined'
-      ) {
+    function canUseMediaRecorder() {
+      return (
+        !mediaCaptureDisabled &&
+        typeof navigator !== 'undefined' &&
+        Boolean(navigator.mediaDevices) &&
+        typeof navigator.mediaDevices.getUserMedia === 'function' &&
+        typeof MediaRecorder !== 'undefined'
+      );
+    }
+
+    function startMediaCapture(mySession, isMediaOnly) {
+      if (!canUseMediaRecorder()) {
+        if (isMediaOnly && mySession === sessionSeq) {
+          mediaOnlyMode = false;
+          isRecording = false;
+          safeCall(
+            cbs.onError,
+            'not-supported',
+            'เบราว์เซอร์นี้ไม่รองรับการรับเสียง — แนะนำเปิดใน Chrome / Edge / Safari หรือใช้ปุ่ม ⌨️'
+          );
+          safeCall(cbs.onEnd);
+        }
         return;
       }
 
@@ -1894,6 +2120,12 @@
           } catch (err) {
             mediaCaptureDisabled = true;
             stopMediaTracks();
+            if (isMediaOnly && mySession === sessionSeq) {
+              mediaOnlyMode = false;
+              isRecording = false;
+              safeCall(cbs.onError, 'audio-capture', 'ไม่สามารถเปิดการบันทึกเสียงได้');
+              safeCall(cbs.onEnd);
+            }
             return;
           }
           mediaRecorder = mr;
@@ -1905,6 +2137,7 @@
           };
 
           mr.onstop = function () {
+            stopWaveform();
             // Always release stream tracks when MediaRecorder stops
             try {
               stream.getTracks().forEach(function (t) { t.stop(); });
@@ -1912,36 +2145,76 @@
             if (mediaStream === stream) mediaStream = null;
             if (mediaRecorder === mr) mediaRecorder = null;
 
-            // Only publish audio if no newer recording session has started
-            if (mySession === sessionSeq && audioChunks.length > 0 && typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
+            var hadFinal = receivedFinalResult;
+            var chunksCopy = audioChunks.slice();
+            audioChunks = [];
+
+            // Publish audio if no newer recording session has started
+            if (mySession === sessionSeq && chunksCopy.length > 0 && typeof Blob !== 'undefined' && typeof URL !== 'undefined') {
               var mimeType = mr.mimeType || 'audio/webm';
-              var blob = new Blob(audioChunks, { type: mimeType });
+              var blob = new Blob(chunksCopy, { type: mimeType });
               revokeLastAudio();
               lastAudioUrl = URL.createObjectURL(blob);
               safeCall(cbs.onAudioReady, lastAudioUrl);
+
+              if (typeof cbs.onAudioCaptured === 'function') {
+                var capturedUrl = lastAudioUrl;
+                blobToBase64(blob, function (b64) {
+                  if (mySession !== sessionSeq) return;
+                  safeCall(cbs.onAudioCaptured, {
+                    url: capturedUrl,
+                    blob: blob,
+                    base64: b64,
+                    mimeType: mimeType,
+                    hadSpeechResult: hadFinal
+                  });
+                });
+              }
             }
-            audioChunks = [];
+
+            if (isMediaOnly && mySession === sessionSeq) {
+              mediaOnlyMode = false;
+              isRecording = false;
+              safeCall(cbs.onEnd);
+            }
           };
 
           mr.onerror = function () {
+            stopWaveform();
             mediaCaptureDisabled = true;
             try {
               stream.getTracks().forEach(function (t) { t.stop(); });
             } catch (e) { /* ignore */ }
             if (mediaStream === stream) mediaStream = null;
             if (mediaRecorder === mr) mediaRecorder = null;
+            if (isMediaOnly && mySession === sessionSeq) {
+              mediaOnlyMode = false;
+              isRecording = false;
+              safeCall(cbs.onError, 'audio-capture', 'เกิดข้อผิดพลาดระหว่างอัดเสียง');
+              safeCall(cbs.onEnd);
+            }
           };
 
           mr.start();
+          startWaveform(stream, mySession);
+          if (isMediaOnly && mySession === sessionSeq) {
+            safeCall(cbs.onStart);
+          }
         })
         .catch(function () {
           // Gracefully degrade: SpeechRecognition still works even if MediaRecorder/mic capture fails
           mediaCaptureDisabled = true;
+          if (isMediaOnly && mySession === sessionSeq) {
+            mediaOnlyMode = false;
+            isRecording = false;
+            safeCall(cbs.onError, 'not-allowed', 'กรุณาอนุญาตการใช้ไมโครโฟนในเบราว์เซอร์ (คลิกไอคอนแม่กุญแจที่แถบ URL)');
+            safeCall(cbs.onEnd);
+          }
         });
     }
 
     function isSupported() {
-      return Boolean(getSpeechRecognitionCtor());
+      return Boolean(getSpeechRecognitionCtor()) || (typeof cbs.onAudioCaptured === 'function' && canUseMediaRecorder());
     }
 
     function setLang(bcp47) {
@@ -1960,6 +2233,21 @@
     function startInternal(isRetryWithoutMedia) {
       var SpeechRecognitionCtor = getSpeechRecognitionCtor();
       if (!SpeechRecognitionCtor) {
+        // Fallback: if Web Speech API is unavailable but MediaRecorder + onAudioCaptured are available,
+        // record real audio so the UI can send it to POST /api/evaluate!
+        if (typeof cbs.onAudioCaptured === 'function' && canUseMediaRecorder()) {
+          clearStopFallbackTimer();
+          stopSpeaking();
+          stopUserAudioPlayback();
+          stopMediaRecorder(true);
+          var mediaSession = ++sessionSeq;
+          isRecording = true;
+          mediaOnlyMode = true;
+          receivedFinalResult = false;
+          lastInterimTranscript = '';
+          startMediaCapture(mediaSession, true);
+          return true;
+        }
         isRecording = false;
         recognitionActive = false;
         safeCall(
@@ -1972,6 +2260,7 @@
       }
 
       clearStopFallbackTimer();
+      mediaOnlyMode = false;
 
       // Stop any active TTS or user audio playback before opening microphone
       stopSpeaking();
@@ -2248,16 +2537,62 @@
 
   var GEMINI_VOICES = ['Kore', 'Puck', 'Aoede', 'Zephyr', 'Charon', 'Fenrir'];
 
+  var EDGE_VOICES = {
+    en: [
+      { id: 'en-US-AvaMultilingualNeural', label: 'Ava Neural (US - ธรรมชาติสูงสุด)' },
+      { id: 'en-US-AndrewMultilingualNeural', label: 'Andrew Neural (US - ชัดเจน)' },
+      { id: 'en-US-EmmaMultilingualNeural', label: 'Emma Neural (US - โค้ชหญิง)' },
+      { id: 'en-US-BrianMultilingualNeural', label: 'Brian Neural (US - โค้ชชาย)' },
+      { id: 'en-GB-SoniaNeural', label: 'Sonia Neural (UK - สำเนียงอังกฤษ)' }
+    ],
+    zh: [
+      { id: 'zh-CN-XiaoxiaoNeural', label: 'Xiaoxiao Neural (จีนกลาง - ธรรมชาติสูงสุด)' },
+      { id: 'zh-CN-YunxiNeural', label: 'Yunxi Neural (จีนกลาง - ชายชัดเจน)' },
+      { id: 'zh-CN-XiaoyiNeural', label: 'Xiaoyi Neural (จีนกลาง - สดใส)' },
+      { id: 'zh-CN-YunjianNeural', label: 'Yunjian Neural (จีนกลาง - ทุ้มชัด)' }
+    ]
+  };
+
+  var backendStatus = {
+    ok: false,
+    edgeTtsAvailable: false,
+    hasServerGeminiKey: false,
+    cachedCounts: { en: 0, zh: 0 }
+  };
+
+  function setBackendStatus(statusObj) {
+    var s = statusObj && typeof statusObj === 'object' ? statusObj : {};
+    backendStatus = {
+      ok: Boolean(s.ok),
+      edgeTtsAvailable: Boolean(s.edgeTtsAvailable),
+      hasServerGeminiKey: Boolean(s.hasServerGeminiKey),
+      cachedCounts: (s.cachedCounts && typeof s.cachedCounts === 'object')
+        ? { en: Number(s.cachedCounts.en) || 0, zh: Number(s.cachedCounts.zh) || 0 }
+        : { en: 0, zh: 0 }
+    };
+    if (s.edgeVoices && typeof s.edgeVoices === 'object') {
+      if (Array.isArray(s.edgeVoices.en) && s.edgeVoices.en.length > 0) {
+        EDGE_VOICES.en = s.edgeVoices.en.slice();
+      }
+      if (Array.isArray(s.edgeVoices.zh) && s.edgeVoices.zh.length > 0) {
+        EDGE_VOICES.zh = s.edgeVoices.zh.slice();
+      }
+    }
+    return Object.assign({}, backendStatus);
+  }
+
   var DEFAULT_VOICE_SETTINGS = {
-    provider: 'browser', // 'browser' | 'gemini'
+    provider: 'edge', // 'edge' | 'gemini' | 'browser' — defaults to pre-generated Neural MP3 everywhere!
     apiKey: '',
     geminiModel: 'gemini-3.8-flash-tts',
     geminiVoice: 'Kore',
+    edgeVoiceEn: 'en-US-AvaMultilingualNeural',
+    edgeVoiceZh: 'zh-CN-XiaoxiaoNeural',
     browserVoiceEn: '',
     browserVoiceZh: ''
   };
 
-  // In-memory LRU WAV cache: key -> { url: string, blob: Blob }
+  // In-memory LRU WAV/MP3 cache: key -> { url: string, blob: Blob }
   var ttsWavCache = new Map();
   var activeTtsAudio = null;
   var activeUtterance = null;
@@ -2281,14 +2616,16 @@
 
   function getVoiceSettings() {
     var merged = Object.assign({}, DEFAULT_VOICE_SETTINGS);
+    var hasExplicitProvider = false;
     try {
       if (typeof localStorage !== 'undefined' && localStorage.getItem) {
         var raw = localStorage.getItem(VOICE_SETTINGS_STORAGE_KEY);
         if (raw) {
           var parsed = JSON.parse(raw);
           if (parsed && typeof parsed === 'object') {
-            if (parsed.provider === 'gemini' || parsed.provider === 'browser') {
+            if (parsed.provider === 'edge' || parsed.provider === 'gemini' || parsed.provider === 'browser') {
               merged.provider = parsed.provider;
+              hasExplicitProvider = true;
             }
             if (typeof parsed.apiKey === 'string') {
               merged.apiKey = parsed.apiKey.trim();
@@ -2301,6 +2638,12 @@
                 GEMINI_VOICES.indexOf(parsed.geminiVoice) !== -1) {
               merged.geminiVoice = parsed.geminiVoice;
             }
+            if (typeof parsed.edgeVoiceEn === 'string' && parsed.edgeVoiceEn.trim()) {
+              merged.edgeVoiceEn = parsed.edgeVoiceEn.trim();
+            }
+            if (typeof parsed.edgeVoiceZh === 'string' && parsed.edgeVoiceZh.trim()) {
+              merged.edgeVoiceZh = parsed.edgeVoiceZh.trim();
+            }
             if (typeof parsed.browserVoiceEn === 'string') {
               merged.browserVoiceEn = parsed.browserVoiceEn;
             }
@@ -2311,6 +2654,11 @@
         }
       }
     } catch (e) { /* ignore storage errors */ }
+
+    // Default to Tier 0 Localhost Neural AI ('edge') when backend is available and user hasn't explicitly chosen otherwise
+    if (!hasExplicitProvider && backendStatus.ok && backendStatus.edgeTtsAvailable) {
+      merged.provider = 'edge';
+    }
     return merged;
   }
 
@@ -2319,7 +2667,7 @@
     var p = patch && typeof patch === 'object' ? patch : {};
     var next = Object.assign({}, current);
 
-    if (p.provider === 'gemini' || p.provider === 'browser') {
+    if (p.provider === 'edge' || p.provider === 'gemini' || p.provider === 'browser') {
       next.provider = p.provider;
     }
     if (typeof p.apiKey === 'string') {
@@ -2332,6 +2680,12 @@
     if (typeof p.geminiVoice === 'string' &&
         GEMINI_VOICES.indexOf(p.geminiVoice) !== -1) {
       next.geminiVoice = p.geminiVoice;
+    }
+    if (typeof p.edgeVoiceEn === 'string' && p.edgeVoiceEn.trim()) {
+      next.edgeVoiceEn = p.edgeVoiceEn.trim();
+    }
+    if (typeof p.edgeVoiceZh === 'string' && p.edgeVoiceZh.trim()) {
+      next.edgeVoiceZh = p.edgeVoiceZh.trim();
     }
     if (typeof p.browserVoiceEn === 'string') {
       next.browserVoiceEn = p.browserVoiceEn;
@@ -2825,9 +3179,10 @@
     return didCancelSynth;
   }
 
-  function playCachedAudioUrl(url, playbackRate, reqId, opts) {
+  function playCachedAudioUrl(url, playbackRate, reqId, opts, providerName) {
     if (reqId !== speakRequestSeq) return;
     if (typeof Audio === 'undefined') {
+      safeCallFn(opts.onProviderUsed, providerName || 'gemini');
       safeCallFn(opts.onEnd);
       return;
     }
@@ -2853,7 +3208,7 @@
     audio.onended = finish;
     audio.onerror = finish;
 
-    safeCallFn(opts.onProviderUsed, 'gemini');
+    safeCallFn(opts.onProviderUsed, providerName || 'gemini');
     safeCallFn(opts.onStart);
     var p = audio.play();
     if (p && typeof p.catch === 'function') {
@@ -2932,35 +3287,90 @@
   }
 
   /**
-   * Primary ultra-natural speech API:
-   * Uses Google Gemini 3.8 TTS when configured + cached WAV playback,
-   * and falls back automatically to Tier 2 Auto-Ranked Natural Browser Voices.
+   * Tier 0: Localhost Backend Neural TTS (`/api/tts` via edge-tts or server-side Gemini with disk cache)
    */
-  function speakNatural(text, options) {
-    var opts = options || {};
-    var cleanText = stripHtml(text).replace(/\s+/g, ' ').trim();
-    var speed = (typeof opts.rate === 'number' && !isNaN(opts.rate))
-      ? Math.max(0.4, Math.min(2.0, opts.rate))
-      : 1.0;
-    var targetLang = normalizeBcp47(opts.lang);
-
-    var justCanceledSynth = stopSpeaking();
-    var reqId = speakRequestSeq;
-
-    if (!cleanText) {
-      safeCallFn(opts.onEnd);
+  function speakWithBackendTts(cleanText, speed, targetLang, reqId, opts, settings, provider, onFail) {
+    if (reqId !== speakRequestSeq) return;
+    if (typeof fetch !== 'function' || typeof URL === 'undefined' || typeof Blob === 'undefined') {
+      onFail(new Error('Fetch/Blob unavailable'));
       return;
     }
 
-    var settings = getVoiceSettings();
-    var useGemini = settings.provider === 'gemini' &&
-      Boolean(settings.apiKey) &&
-      typeof fetch === 'function' &&
-      typeof URL !== 'undefined' &&
-      typeof Blob !== 'undefined';
+    var isZh = /^zh/i.test(targetLang);
+    var shortLang = isZh ? 'zh' : 'en';
+    var isSlow = speed < 0.9;
+    var selectedVoice = provider === 'gemini'
+      ? settings.geminiVoice
+      : (isZh ? settings.edgeVoiceZh : settings.edgeVoiceEn);
 
-    if (!useGemini) {
-      speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, justCanceledSynth);
+    var normalKey = buildTtsCacheKey('backend-' + provider, selectedVoice, targetLang, cleanText, false);
+    var slowKey = buildTtsCacheKey('backend-' + provider, selectedVoice, targetLang, cleanText, true);
+
+    // Instant 0ms playback if slow requested and normal MP3/WAV is already in memory cache!
+    if (isSlow && ttsWavCache.has(normalKey)) {
+      var cachedNormal = ttsWavCache.get(normalKey);
+      safeCallFn(opts.onVoiceStatus, 'ready', provider === 'gemini' ? 'Gemini AI (Cache)' : 'Localhost Neural AI (Cache)');
+      playCachedAudioUrl(cachedNormal.url, 0.72, reqId, opts, provider);
+      return;
+    }
+    var targetKey = isSlow ? slowKey : normalKey;
+    if (ttsWavCache.has(targetKey)) {
+      var cached = ttsWavCache.get(targetKey);
+      safeCallFn(opts.onVoiceStatus, 'ready', provider === 'gemini' ? 'Gemini AI (Cache)' : 'Localhost Neural AI (Cache)');
+      playCachedAudioUrl(cached.url, 1.0, reqId, opts, provider);
+      return;
+    }
+
+    var query = '?id=' + encodeURIComponent(opts.sentenceId != null ? String(opts.sentenceId) : '') +
+      '&lang=' + encodeURIComponent(shortLang) +
+      '&provider=' + encodeURIComponent(provider) +
+      '&voice=' + encodeURIComponent(selectedVoice) +
+      '&rate=' + encodeURIComponent(String(speed)) +
+      '&text=' + encodeURIComponent(cleanText);
+
+    var headers = {};
+    if (provider === 'gemini' && settings.apiKey) {
+      headers['X-Gemini-Key'] = settings.apiKey;
+    }
+
+    safeCallFn(opts.onVoiceStatus, 'loading', provider === 'gemini' ? 'กำลังสร้างเสียง Gemini AI...' : 'กำลังโหลดเสียง Neural AI...');
+
+    fetch('/api/tts' + query, { method: 'GET', headers: headers })
+      .then(function (resp) {
+        if (!resp.ok) {
+          throw new Error('Backend TTS HTTP ' + resp.status);
+        }
+        var actualProvider = (resp.headers && resp.headers.get && resp.headers.get('X-Voice-Provider')) || provider;
+        var cacheState = (resp.headers && resp.headers.get && resp.headers.get('X-Cache')) || '';
+        return resp.blob().then(function (blob) {
+          return { blob: blob, actualProvider: actualProvider, cacheState: cacheState };
+        });
+      })
+      .then(function (res) {
+        if (reqId !== speakRequestSeq) return;
+        if (!res.blob || res.blob.size < 100) {
+          throw new Error('Empty audio from backend');
+        }
+        var url = URL.createObjectURL(res.blob);
+        putTtsCache(targetKey, { url: url, blob: res.blob });
+        var label = res.actualProvider === 'gemini' ? 'Gemini AI Voice' : 'Localhost Neural AI';
+        if (res.cacheState === 'HIT') label += ' (Disk Cache)';
+        safeCallFn(opts.onVoiceStatus, 'ready', label);
+        playCachedAudioUrl(url, 1.0, reqId, opts, res.actualProvider);
+      })
+      .catch(function (err) {
+        if (reqId !== speakRequestSeq) return;
+        onFail(err);
+      });
+  }
+
+  /**
+   * Direct client-side Google Gemini 3.8 TTS (with automatic Gemini 2.5 TTS fallback).
+   */
+  function speakWithClientGemini(cleanText, speed, targetLang, reqId, opts, settings, onFinalFail) {
+    if (reqId !== speakRequestSeq) return;
+    if (!settings.apiKey || typeof fetch !== 'function' || typeof URL === 'undefined' || typeof Blob === 'undefined') {
+      onFinalFail(new Error('ไม่มี Gemini API Key'));
       return;
     }
 
@@ -2968,20 +3378,18 @@
     var normalKey = buildTtsCacheKey(settings.geminiModel, settings.geminiVoice, targetLang, cleanText, false);
     var slowKey = buildTtsCacheKey(settings.geminiModel, settings.geminiVoice, targetLang, cleanText, true);
 
-    // 1. Check cache: if slow requested and normal WAV is already cached, play with preservesPitch at 0.72x!
     if (isSlow && ttsWavCache.has(normalKey)) {
       var cachedNormal = ttsWavCache.get(normalKey);
-      playCachedAudioUrl(cachedNormal.url, 0.72, reqId, opts);
+      playCachedAudioUrl(cachedNormal.url, 0.72, reqId, opts, 'gemini');
       return;
     }
     var targetKey = isSlow ? slowKey : normalKey;
     if (ttsWavCache.has(targetKey)) {
       var cached = ttsWavCache.get(targetKey);
-      playCachedAudioUrl(cached.url, 1.0, reqId, opts);
+      playCachedAudioUrl(cached.url, 1.0, reqId, opts, 'gemini');
       return;
     }
 
-    // 2. Call Google Gemini 3.8 TTS Interactions API
     var payload = buildGeminiTtsPayload(cleanText, {
       model: settings.geminiModel,
       voice: settings.geminiVoice,
@@ -2995,13 +3403,13 @@
 
     function buildGeminiHttpError(status, bodyText) {
       if (isVertexExpressKey && (status === 400 || status === 401 || status === 403)) {
-        return new Error('คีย์ที่ขึ้นต้นด้วย "AQ." เป็น Vertex AI Express Key — Gemini Developer API จาก Google AI Studio ต้องใช้คีย์ที่ขึ้นต้นด้วย "AIza..." (สลับเป็นเสียงเบราว์เซอร์ธรรมชาติอัตโนมัติ)');
+        return new Error('คีย์ที่ขึ้นต้นด้วย "AQ." เป็น Vertex AI Express Key — Gemini Developer API จาก Google AI Studio ต้องใช้คีย์ที่ขึ้นต้นด้วย "AIza..." (สลับเป็นเสียงสำรองอัตโนมัติ)');
       }
       var errMsg = 'Gemini TTS HTTP ' + status;
       if (status === 401 || status === 403) {
         errMsg = 'API Key ไม่ถูกต้องหรือไม่มีสิทธิ์ใช้งาน Gemini TTS';
       } else if (status === 429) {
-        errMsg = 'เกินโควต้า Gemini API ชั่วคราว — สลับเป็นเสียงเบราว์เซอร์อัตโนมัติ';
+        errMsg = 'เกินโควต้า Gemini API ชั่วคราว — สลับเป็นเสียงสำรองอัตโนมัติ';
       } else if (bodyText) {
         errMsg = errMsg + ': ' + bodyText.slice(0, 120);
       }
@@ -3052,8 +3460,6 @@
       .then(function (resp) {
         if (!resp.ok) {
           return resp.text().then(function (bodyText) {
-            // If v1beta/interactions returns 400/404 with a standard AI Studio key,
-            // gracefully try gemini-2.5-flash-preview-tts generateContent before browser fallback
             if (!isVertexExpressKey && (resp.status === 400 || resp.status === 404)) {
               return callGemini25Fallback();
             }
@@ -3074,21 +3480,212 @@
         var url = URL.createObjectURL(blob);
         putTtsCache(targetKey, { url: url, blob: blob });
         safeCallFn(opts.onVoiceStatus, 'ready', 'Gemini AI Voice');
-        playCachedAudioUrl(url, 1.0, reqId, opts);
+        playCachedAudioUrl(url, 1.0, reqId, opts, 'gemini');
       })
       .catch(function (err) {
         if (reqId !== speakRequestSeq) return;
+        onFinalFail(err);
+      });
+  }
+
+  function buildStaticAudioUrl(sentenceId, targetLang) {
+    var idNum = parseInt(sentenceId, 10);
+    if (!(idNum > 0)) return '';
+    var langKey = /^zh/i.test(targetLang) ? 'zh' : 'en';
+    var padded = String(idNum).padStart(4, '0');
+    return './audio_cache/' + langKey + '/' + padded + '.mp3';
+  }
+
+  function playStaticMp3Url(staticUrl, playbackRate, reqId, opts, onFail) {
+    if (reqId !== speakRequestSeq) return;
+    if (typeof Audio === 'undefined') {
+      onFail(new Error('Audio unavailable'));
+      return;
+    }
+
+    var audio = new Audio(staticUrl);
+    activeTtsAudio = audio;
+    var rate = (typeof playbackRate === 'number' && !isNaN(playbackRate))
+      ? Math.max(0.5, Math.min(2.0, playbackRate))
+      : 1.0;
+    audio.playbackRate = rate;
+    if ('preservesPitch' in audio) audio.preservesPitch = true;
+    if ('mozPreservesPitch' in audio) audio.mozPreservesPitch = true;
+    if ('webkitPreservesPitch' in audio) audio.webkitPreservesPitch = true;
+
+    var started = false;
+    var finished = false;
+
+    function markStarted() {
+      if (started || finished || reqId !== speakRequestSeq) return;
+      started = true;
+      safeCallFn(opts.onVoiceStatus, 'ready', 'Neural AI (MP3)');
+      safeCallFn(opts.onProviderUsed, 'edge');
+      safeCallFn(opts.onStart);
+    }
+
+    function handleEnd() {
+      if (finished) return;
+      finished = true;
+      if (activeTtsAudio === audio) activeTtsAudio = null;
+      safeCallFn(opts.onEnd);
+    }
+
+    function handleError(err) {
+      if (finished) return;
+      finished = true;
+      if (activeTtsAudio === audio) activeTtsAudio = null;
+      if (reqId !== speakRequestSeq) return;
+      if (!started) {
+        onFail(err || new Error('Static MP3 load failed: ' + staticUrl));
+      } else {
+        safeCallFn(opts.onEnd);
+      }
+    }
+
+    audio.onplaying = markStarted;
+    audio.onended = handleEnd;
+    audio.onerror = function () { handleError(new Error('Static MP3 not found: ' + staticUrl)); };
+
+    var p = audio.play();
+    if (p && typeof p.then === 'function') {
+      p.then(markStarted, handleError);
+    } else {
+      markStarted();
+    }
+  }
+
+  /**
+   * Primary ultra-natural speech API:
+   * - Tier 0: Pre-generated Static Neural MP3 (`./audio_cache/{lang}/{id:04d}.mp3` — 0ms on GitHub Pages & Localhost!)
+   *           + Localhost Backend Neural AI (`/api/tts` via `edge-tts`)
+   * - Tier 1: Google Gemini 3.8/2.5 TTS (via Backend Disk Cache if localhost, else direct client REST)
+   * - Tier 2: Smart Auto-Ranked Natural Browser Voices (always-available fallback)
+   */
+  function speakNatural(text, options) {
+    var opts = options || {};
+    var cleanText = stripHtml(text).replace(/\s+/g, ' ').trim();
+    var speed = (typeof opts.rate === 'number' && !isNaN(opts.rate))
+      ? Math.max(0.4, Math.min(2.0, opts.rate))
+      : 1.0;
+    var targetLang = normalizeBcp47(opts.lang);
+
+    var justCanceledSynth = stopSpeaking();
+    var reqId = speakRequestSeq;
+
+    if (!cleanText) {
+      safeCallFn(opts.onEnd);
+      return;
+    }
+
+    var settings = getVoiceSettings();
+    var canUseBackendEdge = backendStatus.ok && backendStatus.edgeTtsAvailable;
+
+    // Tier 0: Static Pre-Generated Neural MP3 + Localhost Neural AI (edge-tts)
+    if (settings.provider === 'edge') {
+      var langKey = /^zh/i.test(targetLang) ? 'zh' : 'en';
+      var defaultVoice = langKey === 'zh' ? 'zh-CN-XiaoxiaoNeural' : 'en-US-AvaMultilingualNeural';
+      var selectedVoice = langKey === 'zh' ? settings.edgeVoiceZh : settings.edgeVoiceEn;
+      var isDefaultVoice = !selectedVoice || selectedVoice === 'auto' || selectedVoice === defaultVoice;
+      var idNum = parseInt(opts.sentenceId, 10);
+      var isSlow = speed < 0.9;
+      var staticRate = isSlow ? 0.72 : 1.0;
+
+      var fallbackAfterStatic = function () {
+        if (canUseBackendEdge) {
+          speakWithBackendTts(cleanText, speed, targetLang, reqId, opts, settings, 'edge', function (err) {
+            var msg = (err && err.message) ? err.message : 'ไม่สามารถโหลดเสียง Neural ได้ — สลับเป็นเสียงเบราว์เซอร์';
+            safeCallFn(opts.onVoiceStatus, 'fallback', msg);
+            safeCallFn(opts.onError, msg);
+            speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, false);
+          });
+        } else {
+          speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, false);
+        }
+      };
+
+      // 1. Try pre-generated static MP3 first for default voice (or always on static GitHub Pages)
+      if (idNum > 0 && (isDefaultVoice || !backendStatus.ok)) {
+        var staticUrl = buildStaticAudioUrl(idNum, targetLang);
+        playStaticMp3Url(staticUrl, staticRate, reqId, opts, fallbackAfterStatic);
+        return;
+      }
+
+      // 2. "Test Voice" without sentenceId on static GitHub Pages -> play sample 0001.mp3!
+      if (!(idNum > 0) && !backendStatus.ok) {
+        var sampleUrl = './audio_cache/' + langKey + '/0001.mp3';
+        playStaticMp3Url(sampleUrl, staticRate, reqId, opts, function () {
+          speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, false);
+        });
+        return;
+      }
+
+      // 3. Custom Neural voice on Localhost -> fetch `/api/tts`
+      if (canUseBackendEdge) {
+        speakWithBackendTts(cleanText, speed, targetLang, reqId, opts, settings, 'edge', function (err) {
+          var msg = (err && err.message) ? err.message : 'ไม่สามารถโหลดเสียง Localhost ได้ — สลับเป็นเสียงเบราว์เซอร์';
+          safeCallFn(opts.onVoiceStatus, 'fallback', msg);
+          safeCallFn(opts.onError, msg);
+          speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, false);
+        });
+        return;
+      }
+
+      // 4. Fallback to Tier 2 Natural Browser Voice
+      speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, justCanceledSynth);
+      return;
+    }
+
+    // Tier 1: Google Gemini AI Voice
+    if (settings.provider === 'gemini') {
+      var hasAnyGeminiKey = Boolean(settings.apiKey) || (backendStatus.ok && backendStatus.hasServerGeminiKey);
+      if (!hasAnyGeminiKey) {
+        if (canUseBackendEdge) {
+          speakWithBackendTts(cleanText, speed, targetLang, reqId, opts, settings, 'edge', function () {
+            speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, false);
+          });
+        } else {
+          speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, justCanceledSynth);
+        }
+        return;
+      }
+
+      var fallbackFromGemini = function (err) {
         var msg = (err && err.message) ? err.message : 'ไม่สามารถเชื่อมต่อ Gemini TTS ได้';
         safeCallFn(opts.onVoiceStatus, 'fallback', msg);
         safeCallFn(opts.onError, msg);
-        // Seamless automatic fallback to Tier 2 Natural Browser Voice
-        speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings);
-      });
+        if (canUseBackendEdge) {
+          speakWithBackendTts(cleanText, speed, targetLang, reqId, opts, settings, 'edge', function () {
+            speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, false);
+          });
+        } else {
+          speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, false);
+        }
+      };
+
+      // Prefer backend `/api/tts?provider=gemini` when localhost is active so WAV saves to disk cache
+      if (backendStatus.ok) {
+        speakWithBackendTts(cleanText, speed, targetLang, reqId, opts, settings, 'gemini', function (backendErr) {
+          if (settings.apiKey) {
+            speakWithClientGemini(cleanText, speed, targetLang, reqId, opts, settings, fallbackFromGemini);
+          } else {
+            fallbackFromGemini(backendErr);
+          }
+        });
+        return;
+      }
+
+      speakWithClientGemini(cleanText, speed, targetLang, reqId, opts, settings, fallbackFromGemini);
+      return;
+    }
+
+    // Tier 2: Browser Natural Voice
+    speakWithBrowserVoice(cleanText, speed, targetLang, reqId, opts, settings, justCanceledSynth);
   }
 
   /**
    * 5. speakTTS(text, rate = 1.0, onEnd, lang = 'en-US')
-   * Delegates cleanly to `speakNatural` for seamless Gemini + Natural Browser support.
+   * Delegates cleanly to `speakNatural` for seamless Edge / Gemini / Browser support.
    */
   function speakTTS(text, rate, onEnd, lang) {
     speakNatural(text, {
@@ -3106,15 +3703,18 @@
   var ElsaShadowingEngine = {
     preparePrompt: preparePrompt,
     evaluateSpeech: evaluateSpeech,
+    registerDatasetPinyin: registerDatasetPinyin,
     createRecorder: createRecorder,
     speakTTS: speakTTS,
     speakNatural: speakNatural,
     stopSpeaking: stopSpeaking,
     getVoiceSettings: getVoiceSettings,
     saveVoiceSettings: saveVoiceSettings,
+    setBackendStatus: setBackendStatus,
     bootstrapVoiceFromHash: bootstrapVoiceFromHash,
     buildPersonalSetupUrl: buildPersonalSetupUrl,
     getRankedBrowserVoices: getRankedBrowserVoices,
+    EDGE_VOICES: EDGE_VOICES,
     GEMINI_VOICES: GEMINI_VOICES.slice(),
     GEMINI_MODELS: GEMINI_MODELS.map(function (m) { return Object.assign({}, m); }),
     // Testable helpers for unit verification

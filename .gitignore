@@ -4,3 +4,11 @@ __pycache__/
 *.bak.json
 tmp_dupes.txt
 compare_log.txt
+audio_cache/*/custom_*.mp3
+audio_cache/*/*.wav
+user_progress.json
+.env
+local-config.js
+pregenerate_all_audio.py
+
+

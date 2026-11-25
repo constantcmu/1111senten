@@ -123,7 +123,10 @@
             <section class="elsa-card" id="elsaCard" aria-live="polite">
                 <!-- Prompt State Header (Before Speaking) -->
                 <div id="elsaPromptHeader">
-                    <div class="elsa-badge" id="elsaBadge">เสียงตอบรับแบบเดี่ยว</div>
+                    <div class="elsa-card-badge-row">
+                        <div class="elsa-badge" id="elsaBadge">เสียงตอบรับแบบเดี่ยว</div>
+                        <span class="elsa-best-badge hidden" id="elsaBestBadge">🏆 ดีที่สุด 0%</span>
+                    </div>
                     <p class="elsa-instruction" id="elsaInstruction">พูดประโยคดังกล่าวและรับฟังความคิดเห็นเกี่ยวกับคำสำคัญที่ขีดเส้นใต้</p>
                 </div>
 
@@ -226,6 +229,12 @@
             <div class="elsa-bottom-controls">
                 <!-- Ready / Listening State -->
                 <div class="elsa-mic-wrap" id="elsaMicWrap">
+                    <div class="elsa-waveform hidden" id="elsaWaveform" aria-hidden="true">
+                        <span class="elsa-wave-bar"></span><span class="elsa-wave-bar"></span><span class="elsa-wave-bar"></span><span class="elsa-wave-bar"></span>
+                        <span class="elsa-wave-bar"></span><span class="elsa-wave-bar"></span><span class="elsa-wave-bar"></span><span class="elsa-wave-bar"></span>
+                        <span class="elsa-wave-bar"></span><span class="elsa-wave-bar"></span><span class="elsa-wave-bar"></span><span class="elsa-wave-bar"></span>
+                        <span class="elsa-wave-bar"></span><span class="elsa-wave-bar"></span><span class="elsa-wave-bar"></span><span class="elsa-wave-bar"></span>
+                    </div>
                     <p class="elsa-interim-text" id="elsaInterimText"></p>
                     <p class="elsa-mic-hint" id="elsaMicHint">แตะเพื่อพูด</p>
                     <button type="button" class="elsa-mic-btn" id="elsaMicBtn" aria-label="แตะเพื่อพูด">
@@ -297,16 +306,43 @@
             <div class="elsa-sheet-body">
                 <div class="elsa-field">
                     <span class="elsa-field-label">เลือกแหล่งเสียงพูด</span>
-                    <div class="elsa-provider-cards">
+                    <div class="elsa-provider-cards three-cols">
+                        <button type="button" class="elsa-provider-card active" id="btnProviderEdge" data-provider="edge">
+                            <span class="elsa-provider-title">⚡ Neural AI (edge-tts + Disk Cache)</span>
+                            <span class="elsa-provider-desc">ฟรี 100% เสียงเจ้าของภาษาธรรมชาติ (MP3 ความเร็ว 0ms ทั้งออนไลน์และ Localhost)</span>
+                        </button>
                         <button type="button" class="elsa-provider-card" id="btnProviderGemini" data-provider="gemini">
                             <span class="elsa-provider-title">✨ Google Gemini 3.8 AI</span>
                             <span class="elsa-provider-desc">เสียง AI ธรรมชาติสูงสุด (ใส่ API Key)</span>
                         </button>
-                        <button type="button" class="elsa-provider-card active" id="btnProviderBrowser" data-provider="browser">
-                            <span class="elsa-provider-title">🔊 เสียงเบราว์เซอร์ (Natural)</span>
-                            <span class="elsa-provider-desc">ใช้งานได้ทันที ไม่ต้องใช้ API Key</span>
+                        <button type="button" class="elsa-provider-card" id="btnProviderBrowser" data-provider="browser">
+                            <span class="elsa-provider-title">🔊 เสียงเบราว์เซอร์ (Browser)</span>
+                            <span class="elsa-provider-desc">ใช้งานได้ทันที ไม่ต้องใช้เซิร์ฟเวอร์</span>
                         </button>
                     </div>
+                </div>
+
+                <!-- Localhost Neural AI (edge-tts + Disk Cache) Settings -->
+                <div id="edgeSettingsGroup" class="hidden" style="display:flex;flex-direction:column;gap:12px;">
+                    <div class="elsa-field">
+                        <label class="elsa-field-label" for="edgeVoiceEnSelect">เสียง Neural ภาษาอังกฤษ (EN)</label>
+                        <select class="elsa-select" id="edgeVoiceEnSelect"></select>
+                    </div>
+                    <div class="elsa-field">
+                        <label class="elsa-field-label" for="edgeVoiceZhSelect">เสียง Neural ภาษาจีน (ZH)</label>
+                        <select class="elsa-select" id="edgeVoiceZhSelect"></select>
+                    </div>
+                    <div class="elsa-pregen-box">
+                        <div class="elsa-pregen-stats">
+                            <span id="edgeCacheStats">แคชในเครื่องแล้ว: EN 0 / ZH 0 ไฟล์</span>
+                            <span id="edgePregenText"></span>
+                        </div>
+                        <button type="button" class="elsa-pregen-btn" id="btnPregenBatch">⚡ สร้างไฟล์เสียงล่วงหน้าลงเครื่อง (+25 ประโยค)</button>
+                        <div class="elsa-pregen-progress hidden" id="edgePregenProgress">
+                            <div class="elsa-pregen-fill" id="edgePregenFill" style="width: 0%;"></div>
+                        </div>
+                    </div>
+                    <p class="elsa-field-hint" id="edgeOfflineHint">รันผ่าน <code>python server.py</code> บนเครื่องเพื่อใช้เสียง Neural ฟรีพร้อมแคชลงดิสก์</p>
                 </div>
 
                 <!-- Gemini 3.8 TTS Settings -->
@@ -364,6 +400,7 @@
 
             const ELSA_RING_CIRCUMFERENCE = 2 * Math.PI * 15; // r=15 -> ~94.248
             const BOOKMARK_STORAGE_KEY = 'elsa_bookmarks';
+            const SCORES_STORAGE_KEY = 'elsa_scores';
             const LEGACY_STAR_KEY = 'cyberpunk_starred_data';
             const LANG_STORAGE_KEY = 'elsa_shadowing_lang';
 
@@ -373,7 +410,17 @@
             let currentIndex = 0;
             let activeGroup = 'all';
             let searchTerm = '';
+            let categoryDisplayLimit = 150;
             let bookmarkedIds = loadBookmarks();
+            let progressScores = loadLocalScores(); // { "en:1": { best, last, attempts } }
+            let backendStatus = {
+                ok: false,
+                edgeTtsAvailable: false,
+                hasServerGeminiKey: false,
+                cachedCounts: { en: 0, zh: 0 },
+                edgeVoices: null
+            };
+            let pregenPollTimer = null;
 
             let elsaLang = loadSavedLang(); // 'en' | 'zh'
             let elsaMode = 'normal';        // 'normal' | 'advanced'
@@ -407,6 +454,114 @@
             function saveBookmarks() {
                 try {
                     localStorage.setItem(BOOKMARK_STORAGE_KEY, JSON.stringify(bookmarkedIds));
+                } catch (e) { /* ignore */ }
+            }
+
+            function loadLocalScores() {
+                try {
+                    const raw = localStorage.getItem(SCORES_STORAGE_KEY);
+                    const parsed = raw ? JSON.parse(raw) : {};
+                    return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+                } catch (e) {
+                    return {};
+                }
+            }
+
+            function saveLocalScores() {
+                try {
+                    localStorage.setItem(SCORES_STORAGE_KEY, JSON.stringify(progressScores));
+                } catch (e) { /* ignore */ }
+            }
+
+            function getScoreKey(lang, id) {
+                return `${lang}:${id}`;
+            }
+
+            function scoreLevelClass(score) {
+                if (score >= 80) return 'level-good';
+                if (score >= 50) return 'level-warn';
+                return 'level-bad';
+            }
+
+            function recordScoreLocallyAndSync(item, score) {
+                if (!item || typeof score !== 'number' || isNaN(score)) return;
+                const key = getScoreKey(elsaLang, item.id);
+                const prev = progressScores[key] || { best: 0, last: 0, attempts: 0 };
+                progressScores[key] = {
+                    best: Math.max(prev.best || 0, score),
+                    last: score,
+                    attempts: (prev.attempts || 0) + 1
+                };
+                saveLocalScores();
+                syncProgressToBackend({
+                    sentenceKey: key,
+                    score: score,
+                    bookmarks: bookmarkedIds,
+                    skipCount: elsaSkipCount
+                });
+            }
+
+            function syncProgressToBackend(payload) {
+                if (!backendStatus.ok) return;
+                fetch('./api/progress', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload || {
+                        bookmarks: bookmarkedIds,
+                        skipCount: elsaSkipCount
+                    })
+                }).catch(() => { /* ignore offline */ });
+            }
+
+            async function initBackendAndProgress() {
+                const engine = window.ElsaShadowingEngine;
+                try {
+                    const statusRes = await fetch('./api/status', { cache: 'no-store' });
+                    if (statusRes.ok) {
+                        const statusJson = await statusRes.json();
+                        if (statusJson && statusJson.ok) {
+                            backendStatus = statusJson;
+                            if (engine && typeof engine.setBackendStatus === 'function') {
+                                engine.setBackendStatus(statusJson);
+                            }
+                            syncVoiceBadge();
+                            updateEdgeCacheUI();
+                        }
+                    }
+                } catch (e) { /* running static without server.py */ }
+
+                if (!backendStatus.ok) return;
+
+                try {
+                    const progRes = await fetch('./api/progress', { cache: 'no-store' });
+                    if (progRes.ok) {
+                        const progJson = await progRes.json();
+                        if (progJson && typeof progJson === 'object') {
+                            if (progJson.scores && typeof progJson.scores === 'object') {
+                                Object.keys(progJson.scores).forEach((k) => {
+                                    const remote = progJson.scores[k];
+                                    const local = progressScores[k];
+                                    if (!local || (remote && remote.best > (local.best || 0))) {
+                                        progressScores[k] = {
+                                            best: Math.max((remote && remote.best) || 0, (local && local.best) || 0),
+                                            last: (remote && remote.last) || (local && local.last) || 0,
+                                            attempts: Math.max((remote && remote.attempts) || 0, (local && local.attempts) || 0)
+                                        };
+                                    }
+                                });
+                                saveLocalScores();
+                            }
+                            if (Array.isArray(progJson.bookmarks)) {
+                                const merged = new Set([...bookmarkedIds, ...progJson.bookmarks]);
+                                bookmarkedIds = Array.from(merged);
+                                saveBookmarks();
+                            }
+                            if (typeof progJson.skipCount === 'number' && progJson.skipCount > elsaSkipCount) {
+                                elsaSkipCount = progJson.skipCount;
+                            }
+                            renderApp();
+                        }
+                    }
                 } catch (e) { /* ignore */ }
             }
 
@@ -453,6 +608,17 @@
                     if (!res.ok) res = await fetch('./data_with_highlights.bak.json');
                     if (!res.ok) throw new Error('HTTP ' + res.status);
                     sentences = await res.json();
+
+                    // Review #2: Register dataset Pinyin for Chinese homophone & tone matching
+                    if (window.ElsaShadowingEngine && typeof window.ElsaShadowingEngine.registerDatasetPinyin === 'function') {
+                        window.ElsaShadowingEngine.registerDatasetPinyin(sentences);
+                    }
+
+                    // Review #6: Pre-index search haystack once on load (zero regex per keystroke)
+                    sentences.forEach((s) => {
+                        s._searchHaystack = `${stripTags(s.en)} ${s.ipa || ''} ${stripTags(s.ch)} ${s.py || ''} ${s.th || ''} ${(s.key || []).join(' ')}`.toLowerCase();
+                    });
+
                     rebuildQueue(false);
                     renderApp();
                 } catch (err) {
@@ -473,8 +639,7 @@
                         if (s.group !== activeGroup) return false;
                     }
                     if (!q) return true;
-                    const haystack = `${stripTags(s.en)} ${s.ipa || ''} ${stripTags(s.ch)} ${s.py || ''} ${s.th || ''} ${(s.key || []).join(' ')}`.toLowerCase();
-                    return haystack.includes(q);
+                    return (s._searchHaystack || '').includes(q);
                 });
 
                 if (prevItem) {
@@ -496,6 +661,7 @@
                 elsaSkipCount += 1;
                 const skipBadge = document.getElementById('elsaSkipBadge');
                 if (skipBadge) skipBadge.textContent = `ข้าม ${elsaSkipCount}`;
+                syncProgressToBackend({ bookmarks: bookmarkedIds, skipCount: elsaSkipCount });
                 goToIndex(currentIndex + 1);
             }
 
@@ -542,9 +708,16 @@
                 const tag = document.getElementById('elsaVoiceTag');
                 if (!engine || !btn || !tag) return;
                 const cfg = engine.getVoiceSettings();
-                const isGeminiActive = cfg.provider === 'gemini' && Boolean(cfg.apiKey && cfg.apiKey.trim());
-                btn.classList.toggle('is-gemini', isGeminiActive);
-                tag.textContent = isGeminiActive ? '✨ AI' : 'Natural';
+                const isEdgeActive = cfg.provider === 'edge';
+                const isGeminiActive = cfg.provider === 'gemini' && (Boolean(cfg.apiKey && cfg.apiKey.trim()) || backendStatus.hasServerGeminiKey);
+                btn.classList.toggle('is-gemini', isEdgeActive || isGeminiActive);
+                if (isEdgeActive) {
+                    tag.textContent = '⚡ Neural';
+                } else if (isGeminiActive) {
+                    tag.textContent = '✨ AI';
+                } else {
+                    tag.textContent = 'Natural';
+                }
             }
 
             // =================================================================
@@ -640,6 +813,18 @@
                 btnBookmark.classList.toggle('bookmarked', isBookmarked);
                 btnBookmark.classList.toggle('active', isBookmarked);
 
+                // Sync best score badge for current sentence
+                const bestBadge = document.getElementById('elsaBestBadge');
+                if (bestBadge) {
+                    const rec = progressScores[getScoreKey(elsaLang, item.id)];
+                    if (rec && typeof rec.best === 'number') {
+                        bestBadge.textContent = `🏆 ดีที่สุด ${rec.best}%`;
+                        bestBadge.className = `elsa-best-badge ${scoreLevelClass(rec.best)}`;
+                    } else {
+                        bestBadge.className = 'elsa-best-badge hidden';
+                    }
+                }
+
                 if (elsaLastResult) {
                     renderFeedbackView(item, elsaLastResult);
                     return;
@@ -667,17 +852,22 @@
                 renderInfoPanel(item, null);
             }
 
-            function evaluateAndRender(spokenText, alternatives) {
+            function evaluateAndRender(spokenText, alternatives, extraTipTh) {
                 const item = getCurrentItem();
                 if (!item || !window.ElsaShadowingEngine) return;
                 elsaLastSpoken = { text: spokenText, alternatives: alternatives || [] };
-                elsaLastResult = window.ElsaShadowingEngine.evaluateSpeech(
+                const evalRes = window.ElsaShadowingEngine.evaluateSpeech(
                     item,
                     spokenText,
                     elsaMode,
                     alternatives || [],
                     elsaLang
                 );
+                if (extraTipTh && typeof extraTipTh === 'string' && extraTipTh.trim()) {
+                    evalRes.tip = extraTipTh.trim();
+                }
+                elsaLastResult = evalRes;
+                recordScoreLocallyAndSync(item, evalRes.score);
                 renderFeedbackView(item, elsaLastResult);
             }
 
@@ -801,6 +991,30 @@
                 }
             }
 
+            function updateWaveformBars(bars16) {
+                const wrap = document.getElementById('elsaWaveform');
+                if (!wrap) return;
+                if (!Array.isArray(bars16) || !bars16.length) return;
+                wrap.classList.remove('hidden');
+                const barEls = wrap.children;
+                const count = Math.min(barEls.length, bars16.length);
+                for (let i = 0; i < count; i++) {
+                    const norm = Math.max(0, Math.min(100, Number(bars16[i]) || 0));
+                    const px = Math.round(4 + (norm / 100) * 22); // 4px..26px
+                    barEls[i].style.height = `${px}px`;
+                }
+            }
+
+            function hideWaveform() {
+                const wrap = document.getElementById('elsaWaveform');
+                if (!wrap) return;
+                wrap.classList.add('hidden');
+                const barEls = wrap.children;
+                for (let i = 0; i < barEls.length; i++) {
+                    barEls[i].style.height = '4px';
+                }
+            }
+
             function stopRecording() {
                 const recActive = elsaRecorder && typeof elsaRecorder.isRecording === 'function'
                     ? elsaRecorder.isRecording()
@@ -810,6 +1024,7 @@
                 }
                 elsaMicState = 'idle';
                 elsaIsRecording = false;
+                hideWaveform();
                 updateMicUI();
             }
 
@@ -887,15 +1102,24 @@
                 const engine = window.ElsaShadowingEngine;
                 if (!item || !engine) return;
 
+                // Review #5: Clicking an active/loading speaker button toggles playback off
+                if (buttonEl.classList.contains('playing') || buttonEl.classList.contains('loading')) {
+                    if (typeof engine.stopSpeaking === 'function') engine.stopSpeaking();
+                    clearSpeakButtonStates();
+                    return;
+                }
+
                 if (elsaMicState !== 'idle' || elsaIsRecording) {
                     stopRecording();
                 }
                 clearSpeakButtonStates();
                 const targetText = elsaLang === 'zh' ? item.ch : item.en;
                 const cfg = engine.getVoiceSettings();
-                const willUseGemini = cfg.provider === 'gemini' && Boolean(cfg.apiKey && cfg.apiKey.trim());
+                const willFetchAudio =
+                    cfg.provider === 'edge' ||
+                    (cfg.provider === 'gemini' && (Boolean(cfg.apiKey && cfg.apiKey.trim()) || backendStatus.hasServerGeminiKey));
 
-                if (willUseGemini) {
+                if (willFetchAudio) {
                     buttonEl.classList.add('loading');
                     speakSafetyTimer = setTimeout(() => {
                         buttonEl.classList.remove('loading', 'playing');
@@ -905,6 +1129,7 @@
                 }
 
                 engine.speakNatural(targetText, {
+                    sentenceId: item.id,
                     rate: rate,
                     lang: getBcp47(),
                     onStart: () => {
@@ -922,8 +1147,11 @@
                         }
                         buttonEl.classList.remove('loading', 'playing');
                     },
-                    onVoiceStatus: (statusMsg) => {
-                        if (statusMsg) showToast(statusMsg, 3800);
+                    onVoiceStatus: (state, statusMsg) => {
+                        // Review #1: 2-arg signature — only toast on fallback, never on loading/ready
+                        if (state === 'fallback' && statusMsg) {
+                            showToast(statusMsg, 3800);
+                        }
                     },
                     onError: (msg) => {
                         if (speakSafetyTimer) {
@@ -985,7 +1213,7 @@
                     document.getElementById('voiceSheetBackdrop').classList.contains('open');
             }
 
-            function renderCategorySheet() {
+            function renderCategorySheet(shouldScrollToActive) {
                 const chipsWrap = document.getElementById('categoryGroupChips');
                 const listWrap = document.getElementById('categorySentenceList');
                 const countLabel = document.getElementById('categoryListCount');
@@ -1004,18 +1232,21 @@
                 chipsWrap.querySelectorAll('.elsa-chip-btn').forEach((btn) => {
                     btn.addEventListener('click', () => {
                         activeGroup = btn.getAttribute('data-group');
+                        categoryDisplayLimit = 150;
                         rebuildQueue(true);
                         resetCardState();
                         renderApp();
-                        renderCategorySheet();
+                        renderCategorySheet(true);
                     });
                 });
 
                 const current = getCurrentItem();
-                const maxShow = 120;
-                const slice = filteredQueue.slice(0, maxShow);
-                countLabel.textContent = filteredQueue.length > maxShow
-                    ? `รายการประโยค (แสดง ${maxShow} จาก ${filteredQueue.length} ประโยค)`
+                if (shouldScrollToActive) {
+                    categoryDisplayLimit = Math.max(150, currentIndex + 30);
+                }
+                const slice = filteredQueue.slice(0, categoryDisplayLimit);
+                countLabel.textContent = filteredQueue.length > slice.length
+                    ? `รายการประโยค (แสดง ${slice.length} จาก ${filteredQueue.length} ประโยค)`
                     : `รายการประโยค (${filteredQueue.length} ประโยค)`;
 
                 if (!slice.length) {
@@ -1023,20 +1254,34 @@
                     return;
                 }
 
-                listWrap.innerHTML = slice.map((item, idx) => {
+                const itemsHtml = slice.map((item, idx) => {
                     const isActive = current && current.id === item.id;
                     const primaryText = elsaLang === 'zh' ? stripTags(item.ch) : stripTags(item.en);
                     const starMark = bookmarkedIds.includes(item.id) ? '★ ' : '';
+                    const rec = progressScores[getScoreKey(elsaLang, item.id)];
+                    const scoreBadgeHtml = (rec && typeof rec.best === 'number')
+                        ? `<span class="elsa-best-badge ${scoreLevelClass(rec.best)}">🏆 ${rec.best}%</span>`
+                        : '';
                     return `
                         <button type="button" class="elsa-sentence-item${isActive ? ' active' : ''}" data-idx="${idx}">
                             <div class="elsa-sentence-item-top">
                                 <span class="elsa-sentence-item-main">${starMark}${escapeHtml(primaryText)}</span>
-                                <span class="elsa-sentence-item-sub">#${item.id}</span>
+                                <span style="display:inline-flex;align-items:center;gap:6px;flex-shrink:0;">
+                                    ${scoreBadgeHtml}
+                                    <span class="elsa-sentence-item-sub">#${item.id}</span>
+                                </span>
                             </div>
                             <span class="elsa-sentence-item-sub">${escapeHtml(item.th || '')}</span>
                         </button>
                     `;
                 }).join('');
+
+                const remaining = filteredQueue.length - slice.length;
+                const loadMoreHtml = remaining > 0
+                    ? `<button type="button" class="elsa-load-more-btn" id="btnLoadMoreSentences">แสดงเพิ่มเติม (+200 ประโยค) — เหลืออีก ${remaining} ประโยค</button>`
+                    : '';
+
+                listWrap.innerHTML = itemsHtml + loadMoreHtml;
 
                 listWrap.querySelectorAll('.elsa-sentence-item').forEach((btn) => {
                     btn.addEventListener('click', () => {
@@ -1047,6 +1292,23 @@
                         }
                     });
                 });
+
+                const btnLoadMore = document.getElementById('btnLoadMoreSentences');
+                if (btnLoadMore) {
+                    btnLoadMore.addEventListener('click', () => {
+                        categoryDisplayLimit += 200;
+                        renderCategorySheet(false);
+                    });
+                }
+
+                if (shouldScrollToActive) {
+                    requestAnimationFrame(() => {
+                        const activeItem = listWrap.querySelector('.elsa-sentence-item.active');
+                        if (activeItem && typeof activeItem.scrollIntoView === 'function') {
+                            activeItem.scrollIntoView({ block: 'center' });
+                        }
+                    });
+                }
             }
 
             // =================================================================
@@ -1078,24 +1340,155 @@
                 zhSel.value = cfg.browserVoiceZh || 'auto';
             }
 
+            function populateEdgeVoiceDropdowns() {
+                const engine = window.ElsaShadowingEngine;
+                if (!engine) return;
+                const cfg = engine.getVoiceSettings();
+                const voiceBank = (backendStatus && backendStatus.edgeVoices) || engine.EDGE_VOICES || { en: [], zh: [] };
+
+                const enSel = document.getElementById('edgeVoiceEnSelect');
+                const zhSel = document.getElementById('edgeVoiceZhSelect');
+                if (enSel) {
+                    enSel.innerHTML = (voiceBank.en || []).map((v) =>
+                        `<option value="${escapeHtml(v.id)}">${escapeHtml(v.label || v.id)}</option>`
+                    ).join('');
+                    if (cfg.edgeVoiceEn) enSel.value = cfg.edgeVoiceEn;
+                }
+                if (zhSel) {
+                    zhSel.innerHTML = (voiceBank.zh || []).map((v) =>
+                        `<option value="${escapeHtml(v.id)}">${escapeHtml(v.label || v.id)}</option>`
+                    ).join('');
+                    if (cfg.edgeVoiceZh) zhSel.value = cfg.edgeVoiceZh;
+                }
+            }
+
+            function updateEdgeCacheUI(pregenState) {
+                const statsEl = document.getElementById('edgeCacheStats');
+                const pregenText = document.getElementById('edgePregenText');
+                const pregenBtn = document.getElementById('btnPregenBatch');
+                const progWrap = document.getElementById('edgePregenProgress');
+                const progFill = document.getElementById('edgePregenFill');
+                const offlineHint = document.getElementById('edgeOfflineHint');
+
+                if (!backendStatus.ok) {
+                    // Static GitHub Pages hosting: MP3s are already pre-generated!
+                    if (statsEl) {
+                        statsEl.textContent = '✅ ไฟล์เสียง Neural MP3 พร้อมใช้งานบนเว็บแล้ว (1,107 ประโยค EN + ZH)';
+                    }
+                    if (pregenBtn) pregenBtn.classList.add('hidden');
+                    if (progWrap) progWrap.classList.add('hidden');
+                    if (pregenText) pregenText.textContent = '';
+                    if (offlineHint) offlineHint.classList.add('hidden');
+                    return;
+                }
+
+                const counts = (pregenState && pregenState.cachedCounts) || (backendStatus && backendStatus.cachedCounts) || { en: 0, zh: 0 };
+                if (statsEl) {
+                    statsEl.textContent = `แคชในเครื่องแล้ว: EN ${counts.en || 0} / ZH ${counts.zh || 0} ไฟล์`;
+                }
+                if (offlineHint) {
+                    offlineHint.classList.toggle('hidden', Boolean(backendStatus.edgeTtsAvailable));
+                }
+                if (pregenBtn) {
+                    pregenBtn.classList.remove('hidden');
+                    const isRunning = Boolean(pregenState && pregenState.running);
+                    pregenBtn.disabled = isRunning || !backendStatus.edgeTtsAvailable;
+                    pregenBtn.textContent = isRunning
+                        ? '⏳ กำลังสร้างไฟล์เสียงลงเครื่อง...'
+                        : '⚡ สร้างไฟล์เสียงล่วงหน้าลงเครื่อง (+25 ประโยค)';
+                }
+                if (pregenState && progWrap && progFill && pregenText) {
+                    if (pregenState.running && pregenState.total > 0) {
+                        const pct = Math.min(100, Math.round((pregenState.done / pregenState.total) * 100));
+                        progWrap.classList.remove('hidden');
+                        progFill.style.width = `${pct}%`;
+                        pregenText.textContent = `${pregenState.done}/${pregenState.total}`;
+                    } else if (!pregenState.running && pregenState.total > 0 && pregenState.done >= pregenState.total) {
+                        progWrap.classList.add('hidden');
+                        pregenText.textContent = `เสร็จสิ้น ${pregenState.done}/${pregenState.total}`;
+                    } else {
+                        progWrap.classList.add('hidden');
+                        pregenText.textContent = '';
+                    }
+                }
+            }
+
+            async function pollPregenStatus() {
+                if (!backendStatus.ok) return;
+                try {
+                    const res = await fetch('./api/pregenerate/status', { cache: 'no-store' });
+                    if (!res.ok) return;
+                    const st = await res.json();
+                    if (st.cachedCounts) backendStatus.cachedCounts = st.cachedCounts;
+                    updateEdgeCacheUI(st);
+                    if (st.running) {
+                        if (pregenPollTimer) clearTimeout(pregenPollTimer);
+                        pregenPollTimer = setTimeout(pollPregenStatus, 1000);
+                    } else if (st.error) {
+                        setVoiceStatus(`สร้างไฟล์เสียงไม่สำเร็จ: ${st.error}`, true);
+                    } else if (st.done > 0) {
+                        setVoiceStatus(`✅ สร้างไฟล์เสียงลงเครื่องแล้ว ${st.done} ประโยค`, false);
+                    }
+                } catch (e) { /* ignore */ }
+            }
+
+            async function startPregenBatch() {
+                if (!backendStatus.ok || !backendStatus.edgeTtsAvailable) {
+                    setVoiceStatus('กรุณารันผ่าน python server.py บนเครื่องเพื่อสร้างแคชเสียงลงดิสก์', true);
+                    return;
+                }
+                const engine = window.ElsaShadowingEngine;
+                const cfg = engine ? engine.getVoiceSettings() : {};
+                const voice = elsaLang === 'zh'
+                    ? (cfg.edgeVoiceZh || 'zh-CN-XiaoxiaoNeural')
+                    : (cfg.edgeVoiceEn || 'en-US-AvaMultilingualNeural');
+                const current = getCurrentItem();
+                const startId = current ? current.id : 1;
+
+                setVoiceStatus(`กำลังเริ่มสร้างไฟล์เสียง ${elsaLang.toUpperCase()} (+25 ประโยค)...`, false);
+                try {
+                    const res = await fetch('./api/pregenerate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ lang: elsaLang, voice: voice, startId: startId, count: 25 })
+                    });
+                    const st = await res.json();
+                    updateEdgeCacheUI(st);
+                    if (st.running) {
+                        if (pregenPollTimer) clearTimeout(pregenPollTimer);
+                        pregenPollTimer = setTimeout(pollPregenStatus, 800);
+                    }
+                } catch (err) {
+                    setVoiceStatus('ไม่สามารถเชื่อมต่อ /api/pregenerate ได้', true);
+                }
+            }
+
             function renderVoiceSheet() {
                 const engine = window.ElsaShadowingEngine;
                 if (!engine) return;
                 const cfg = engine.getVoiceSettings();
 
+                const btnEdge = document.getElementById('btnProviderEdge');
                 const btnGemini = document.getElementById('btnProviderGemini');
                 const btnBrowser = document.getElementById('btnProviderBrowser');
+                const edgeGroup = document.getElementById('edgeSettingsGroup');
                 const geminiGroup = document.getElementById('geminiSettingsGroup');
                 const browserGroup = document.getElementById('browserSettingsGroup');
                 const apiKeyInput = document.getElementById('geminiApiKeyInput');
                 const modelChips = document.getElementById('geminiModelChips');
                 const voiceChips = document.getElementById('geminiVoiceChips');
 
+                const isEdge = cfg.provider === 'edge';
                 const isGemini = cfg.provider === 'gemini';
+                const isBrowser = !isEdge && !isGemini;
+
+                if (btnEdge) btnEdge.classList.toggle('active', isEdge);
                 btnGemini.classList.toggle('active', isGemini);
-                btnBrowser.classList.toggle('active', !isGemini);
+                btnBrowser.classList.toggle('active', isBrowser);
+
+                if (edgeGroup) edgeGroup.classList.toggle('hidden', !isEdge);
                 geminiGroup.classList.toggle('hidden', !isGemini);
-                browserGroup.classList.toggle('hidden', isGemini);
+                browserGroup.classList.toggle('hidden', !isBrowser);
 
                 apiKeyInput.value = cfg.apiKey || '';
 
@@ -1123,6 +1516,8 @@
                     });
                 });
 
+                populateEdgeVoiceDropdowns();
+                updateEdgeCacheUI();
                 populateBrowserVoiceDropdowns();
                 syncVoiceBadge();
             }
@@ -1162,12 +1557,18 @@
                             elsaIsRecording = true;
                             updateMicUI();
                         },
+                        onWaveform: (bars16) => {
+                            if (elsaIsRecording) {
+                                updateWaveformBars(bars16);
+                            }
+                        },
                         onInterim: (transcript) => {
                             setInterimMessage(`"${transcript}"`, false);
                         },
                         onResult: (finalTranscript, alternatives) => {
                             elsaMicState = 'idle';
                             elsaIsRecording = false;
+                            hideWaveform();
                             updateMicUI();
                             setInterimMessage('', false);
                             evaluateAndRender(finalTranscript, alternatives || []);
@@ -1177,9 +1578,40 @@
                                 document.getElementById('elsaBtnPlayUser').classList.remove('hidden');
                             }
                         },
+                        onAudioCaptured: async (capture) => {
+                            if (!capture || capture.hadSpeechResult || !capture.base64 || !backendStatus.ok) return;
+                            const item = getCurrentItem();
+                            if (!item) return;
+                            try {
+                                setInterimMessage('กำลังวิเคราะห์เสียงด้วย AI...', false);
+                                const cfg = engine.getVoiceSettings();
+                                const res = await fetch('./api/evaluate', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        id: item.id,
+                                        lang: elsaLang,
+                                        mode: elsaMode,
+                                        audioBase64: capture.base64,
+                                        mimeType: capture.mimeType || 'audio/webm',
+                                        apiKey: cfg.apiKey || ''
+                                    })
+                                });
+                                if (!res.ok) return;
+                                const data = await res.json();
+                                if (data && data.transcript && data.transcript.trim()) {
+                                    setInterimMessage('', false);
+                                    evaluateAndRender(data.transcript.trim(), data.alternatives || [], data.phoneticTipTh);
+                                    if (capture.url) {
+                                        document.getElementById('elsaBtnPlayUser').classList.remove('hidden');
+                                    }
+                                }
+                            } catch (e) { /* ignore backend eval failure */ }
+                        },
                         onError: (code, messageTh) => {
                             elsaMicState = 'idle';
                             elsaIsRecording = false;
+                            hideWaveform();
                             updateMicUI();
                             if (code !== 'aborted') {
                                 setInterimMessage(messageTh || 'ไม่สามารถฟังเสียงได้ ลองใช้ช่องพิมพ์ทดสอบ (⌨️)', true);
@@ -1191,6 +1623,7 @@
                         onEnd: () => {
                             elsaMicState = 'idle';
                             elsaIsRecording = false;
+                            hideWaveform();
                             updateMicUI();
                         }
                     });
@@ -1211,17 +1644,18 @@
 
                 // Topbar triggers
                 document.getElementById('btnOpenCategory').addEventListener('click', () => {
-                    renderCategorySheet();
+                    renderCategorySheet(true);
                     openSheet('categorySheetBackdrop');
                 });
                 document.getElementById('elsaCounterBtn').addEventListener('click', () => {
-                    renderCategorySheet();
+                    renderCategorySheet(true);
                     openSheet('categorySheetBackdrop');
                 });
                 document.getElementById('btnOpenVoice').addEventListener('click', () => {
                     setVoiceStatus('', false);
                     renderVoiceSheet();
                     openSheet('voiceSheetBackdrop');
+                    if (backendStatus.ok) pollPregenStatus();
                 });
                 document.getElementById('elsaSkipBadge').addEventListener('click', skipCurrentSentence);
 
@@ -1270,6 +1704,7 @@
                         showToast('★ บันทึกประโยคนี้ลงบุ๊กมาร์กแล้ว');
                     }
                     saveBookmarks();
+                    syncProgressToBackend({ bookmarks: bookmarkedIds, skipCount: elsaSkipCount });
                     renderApp();
                 });
                 document.getElementById('elsaBtnPlayUser').addEventListener('click', function () {
@@ -1337,12 +1772,40 @@
                 // Category search input
                 document.getElementById('categorySearchInput').addEventListener('input', (e) => {
                     searchTerm = e.target.value;
+                    categoryDisplayLimit = 150;
                     rebuildQueue(true);
                     renderApp();
-                    renderCategorySheet();
+                    renderCategorySheet(false);
                 });
 
                 // Voice Settings Sheet interactions
+                const btnProviderEdge = document.getElementById('btnProviderEdge');
+                if (btnProviderEdge) {
+                    btnProviderEdge.addEventListener('click', () => {
+                        if (!engine) return;
+                        engine.saveVoiceSettings({ provider: 'edge' });
+                        setVoiceStatus('', false);
+                        renderVoiceSheet();
+                    });
+                }
+                const edgeVoiceEnSel = document.getElementById('edgeVoiceEnSelect');
+                if (edgeVoiceEnSel) {
+                    edgeVoiceEnSel.addEventListener('change', (e) => {
+                        if (!engine) return;
+                        engine.saveVoiceSettings({ edgeVoiceEn: e.target.value });
+                    });
+                }
+                const edgeVoiceZhSel = document.getElementById('edgeVoiceZhSelect');
+                if (edgeVoiceZhSel) {
+                    edgeVoiceZhSel.addEventListener('change', (e) => {
+                        if (!engine) return;
+                        engine.saveVoiceSettings({ edgeVoiceZh: e.target.value });
+                    });
+                }
+                const btnPregen = document.getElementById('btnPregenBatch');
+                if (btnPregen) {
+                    btnPregen.addEventListener('click', startPregenBatch);
+                }
                 document.getElementById('btnProviderGemini').addEventListener('click', () => {
                     if (!engine) return;
                     engine.saveVoiceSettings({ provider: 'gemini' });
@@ -1406,13 +1869,20 @@
                         rate: 1.0,
                         lang: getBcp47(),
                         onProviderUsed: (provider, voiceName) => {
-                            const label = provider === 'gemini'
-                                ? `✨ กำลังเล่นด้วย Google Gemini (${voiceName || cfg.geminiVoice})`
-                                : `🔊 กำลังเล่นด้วยเสียงเบราว์เซอร์ (${voiceName || 'Default'})`;
+                            let label;
+                            if (provider === 'edge') {
+                                label = `⚡ กำลังเล่นด้วย Localhost Neural AI (${voiceName || 'edge-tts'})`;
+                            } else if (provider === 'gemini') {
+                                label = `✨ กำลังเล่นด้วย Google Gemini (${voiceName || cfg.geminiVoice})`;
+                            } else {
+                                label = `🔊 กำลังเล่นด้วยเสียงเบราว์เซอร์ (${voiceName || 'Default'})`;
+                            }
                             setVoiceStatus(label, false);
                         },
-                        onVoiceStatus: (statusMsg) => {
-                            if (statusMsg) setVoiceStatus(statusMsg, false);
+                        onVoiceStatus: (state, statusMsg) => {
+                            if (statusMsg || state) {
+                                setVoiceStatus(statusMsg || state, state === 'fallback');
+                            }
                         },
                         onEnd: () => {
                             syncVoiceBadge();
@@ -1446,6 +1916,7 @@
                 });
 
                 loadData();
+                initBackendAndProgress();
             }
 
             initApp();
