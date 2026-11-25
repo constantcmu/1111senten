@@ -1022,6 +1022,40 @@ textarea:focus-visible {
     box-shadow: 0 0 0 1.5px rgba(61, 138, 247, 0.5);
 }
 
+.psg-audio-btn:disabled {
+    opacity: 0.42;
+    cursor: not-allowed;
+}
+
+/* Character-level Shadowing Accuracy Coloring inside Passage Words */
+.psg-char {
+    display: inline;
+}
+
+.psg-char.level-good {
+    color: var(--psg-good);
+}
+
+.psg-char.level-warn {
+    color: var(--psg-warn);
+}
+
+.psg-char.level-bad {
+    color: var(--psg-bad);
+}
+
+.psg-char.level-neutral {
+    color: var(--psg-text-dark);
+}
+
+.psg-char.is-underline {
+    text-decoration: underline;
+    text-decoration-color: currentColor;
+    text-underline-offset: 4px;
+    text-decoration-thickness: 2px;
+    text-decoration-skip-ink: none;
+}
+
 /* Key Vocabulary Strip */
 .psg-vocab-section {
     padding-top: 12px;

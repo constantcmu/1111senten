@@ -143,11 +143,12 @@
                 <article class="psg-reading-card" id="psgReadingCard">
                     <!-- Top Audio Controls Bar -->
                     <div class="psg-audio-bar">
-                        <button type="button" class="psg-audio-btn" id="psgBtnAudioNormal" title="ฟังเสียงเจ้าของภาษา (1.0x)">🔊 1.0x</button>
-                        <button type="button" class="psg-audio-btn" id="psgBtnAudioSlow" title="ฟังเสียงช้า (0.75x)">🐌 0.75x</button>
-                        <input type="range" id="psgAudioProgress" min="0" max="100" value="0" aria-label="แถบความคืบหน้าเสียง" style="flex:1;min-width:90px;accent-color:#3D8AF7;cursor:pointer;">
+                        <button type="button" class="psg-audio-btn" id="psgBtnAudioNormal" title="ฟังเสียงอ่านเจ้าของภาษา (1.0x)">🔊 เสียงอ่าน</button>
+                        <button type="button" class="psg-audio-btn" id="psgBtnAudioSlow" title="ฟังเสียงอ่านช้า (0.75x)">🐌 0.75x</button>
+                        <input type="range" id="psgAudioProgress" min="0" max="100" value="0" aria-label="แถบความคืบหน้าเสียง" style="flex:1;min-width:80px;accent-color:#3D8AF7;cursor:pointer;">
                         <span id="psgAudioTime" style="font-family:var(--font-en);font-size:12px;color:#656485;white-space:nowrap;">0:00</span>
-                        <button type="button" class="psg-audio-btn hidden" id="psgBtnPlayUser" title="ฟังเสียงที่คุณอัดไว้">🗣️ เสียงฉัน</button>
+                        <button type="button" class="psg-audio-btn" id="psgBtnPlayUser" title="ฟังเสียงตัวเองที่อัดไว้" disabled>🗣️ ฟังเสียงตัวเอง</button>
+                        <button type="button" class="psg-audio-btn" id="psgBtnRecheck" title="Recheck / ตรวจวิเคราะห์การอ่านซ้ำ">🔍 Recheck</button>
                         <button type="button" class="psg-audio-btn psg-btn-th" id="psgBtnToggleTh" title="แสดง/ซ่อนคำแปลภาษาไทย">แปลไทย</button>
                     </div>
 

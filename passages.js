@@ -373,6 +373,91 @@
     return 'คำว่า "' + core + '": ลองกดฟังเสียงตัวอย่างแล้วออกเสียงตามให้ชัด (ระบบได้ยินเป็น "' + wordObj.spoken + '")';
   }
 
+  function buildPassageWordChars(fullText, targetClean, spokenClean, wordScore, wordLevel) {
+    var chars = Array.from(String(fullText || ''));
+    if (wordScore >= 85) {
+      return chars.map(function (ch) {
+        var isAlphaNum = /[a-z0-9]/i.test(ch);
+        return { char: ch, level: isAlphaNum ? 'good' : 'neutral', underline: false };
+      });
+    }
+    if (!spokenClean) {
+      return chars.map(function (ch) {
+        var isAlphaNum = /[a-z0-9]/i.test(ch);
+        return { char: ch, level: isAlphaNum ? 'bad' : 'neutral', underline: isAlphaNum };
+      });
+    }
+
+    var a = String(targetClean || '').replace(/['-]/g, '');
+    var b = String(spokenClean || '').replace(/['-]/g, '');
+    var m = a.length;
+    var n = b.length;
+    var charLevels = new Array(m).fill(wordLevel || 'warn');
+
+    if (m > 0 && n > 0) {
+      var dp = new Array(m + 1);
+      var bt = new Array(m + 1);
+      for (var i = 0; i <= m; i++) {
+        dp[i] = new Float64Array(n + 1);
+        bt[i] = new Uint8Array(n + 1);
+        dp[i][0] = i;
+        bt[i][0] = 1;
+      }
+      for (var j = 0; j <= n; j++) {
+        dp[0][j] = j;
+        bt[0][j] = 2;
+      }
+      bt[0][0] = 0;
+      for (var r = 1; r <= m; r++) {
+        for (var c = 1; c <= n; c++) {
+          var sub = a[r - 1] === b[c - 1] ? 0 : 1;
+          var diag = dp[r - 1][c - 1] + sub;
+          var up = dp[r - 1][c] + 1;
+          var left = dp[r][c - 1] + 0.85;
+          if (diag <= up && diag <= left) {
+            dp[r][c] = diag;
+            bt[r][c] = 0;
+          } else if (up <= left) {
+            dp[r][c] = up;
+            bt[r][c] = 1;
+          } else {
+            dp[r][c] = left;
+            bt[r][c] = 2;
+          }
+        }
+      }
+      var ti = m;
+      var sj = n;
+      while (ti > 0 || sj > 0) {
+        var mv = bt[ti][sj];
+        if (ti > 0 && sj > 0 && mv === 0) {
+          charLevels[ti - 1] = a[ti - 1] === b[sj - 1] ? 'good' : 'bad';
+          ti--;
+          sj--;
+        } else if (ti > 0 && (sj === 0 || mv === 1)) {
+          charLevels[ti - 1] = 'bad';
+          ti--;
+        } else {
+          sj--;
+        }
+      }
+    }
+
+    var flatIdx = 0;
+    return chars.map(function (ch) {
+      if (!/[a-z0-9]/i.test(ch)) {
+        return { char: ch, level: 'neutral', underline: false };
+      }
+      var lv = flatIdx < charLevels.length ? charLevels[flatIdx] : (wordLevel || 'warn');
+      flatIdx++;
+      return {
+        char: ch,
+        level: lv,
+        underline: lv === 'bad'
+      };
+    });
+  }
+
   /**
    * ELSA Speech Analyzer 4-Metric Evaluation for Long Passages
    */
@@ -405,6 +490,7 @@
       w.score = al.score;
       w.spoken = al.spoken;
       w.level = scoreToLevel(al.score);
+      w.chars = buildPassageWordChars(w.text, w.clean, w.spoken, w.score, w.level);
 
       var weight = Math.max(2, w.clean.length);
       totalWeight += weight;
@@ -816,6 +902,16 @@
     btn.textContent = bm ? '★' : '☆';
   }
 
+  function renderWordCharsHtml(chars, fallbackText) {
+    if (!Array.isArray(chars) || chars.length === 0) {
+      return escapeHtml(fallbackText);
+    }
+    return chars.map(function (c) {
+      var cls = 'psg-char level-' + (c.level || 'neutral') + (c.underline ? ' is-underline' : '');
+      return '<span class="' + cls + '">' + escapeHtml(c.char) + '</span>';
+    }).join('');
+  }
+
   function renderReadingText(evalRes) {
     var container = $('psgParagraphs');
     if (!container || !state.currentStructure) return;
@@ -829,10 +925,14 @@
         for (var wi = sent.wordStart; wi < sent.wordEnd; wi++) {
           var w = words[wi];
           var cls = 'psg-w';
+          var innerHtml = escapeHtml(w.text);
           if (evalRes) {
-            cls += ' level-' + (w.level || 'neutral');
+            cls += ' is-evaluated level-' + (w.level || 'neutral');
+            if (Array.isArray(w.chars) && w.chars.length > 0) {
+              innerHtml = renderWordCharsHtml(w.chars, w.text);
+            }
           }
-          wordsHtml.push('<span class="' + cls + '" data-widx="' + wi + '">' + escapeHtml(w.text) + '</span>');
+          wordsHtml.push('<span class="' + cls + '" data-widx="' + wi + '">' + innerHtml + '</span>');
         }
         return '<span class="psg-sentence-block' + drillCls + '" data-sidx="' + sent.sentIndex + '">' + wordsHtml.join(' ') + '</span>';
       }).join(' ');
@@ -986,7 +1086,10 @@
     if (thBtn) thBtn.classList.remove('active');
 
     var playUserBtn = $('psgBtnPlayUser');
-    if (playUserBtn) playUserBtn.classList.add('hidden');
+    if (playUserBtn) {
+      playUserBtn.classList.remove('hidden', 'playing');
+      playUserBtn.disabled = true;
+    }
 
     var footer = $('psgFooterBtns');
     if (footer) footer.classList.add('hidden');
@@ -1031,9 +1134,11 @@
     var bFull = $('psgModeFull');
     var bDrill = $('psgModeDrill');
     var banner = $('psgDrillBanner');
+    var paraBox = $('psgParagraphs');
     if (bFull) bFull.classList.toggle('active', state.mode === 'full');
     if (bDrill) bDrill.classList.toggle('active', state.mode === 'drill');
     if (banner) banner.classList.toggle('hidden', state.mode !== 'drill');
+    if (paraBox) paraBox.classList.toggle('is-drill-mode', state.mode === 'drill');
     var micHint = $('psgMicHint');
     if (micHint && !state.isReadingActive) {
       micHint.textContent = state.mode === 'drill'
@@ -1143,7 +1248,10 @@
             }
             state.userAudioUrl = URL.createObjectURL(blob);
             var btn = $('psgBtnPlayUser');
-            if (btn) btn.classList.remove('hidden');
+            if (btn) {
+              btn.classList.remove('hidden');
+              btn.disabled = false;
+            }
           }
           state.audioChunks = [];
         };
@@ -1419,6 +1527,11 @@
 
   function runEvaluation(spokenText, durationSec) {
     if (!state.currentPassage || !state.currentStructure) return;
+    state.lastSpokenText = String(spokenText || '').trim();
+    var fbInp = $('psgFallbackInput');
+    if (fbInp && state.lastSpokenText) {
+      fbInp.value = state.lastSpokenText;
+    }
 
     if (state.mode === 'drill') {
       var sent = state.currentStructure.sentences[state.activeDrillSentIdx];
@@ -1433,13 +1546,23 @@
           interimEl.classList.remove('is-error');
           interimEl.textContent = '🎯 ประโยคที่ ' + (sent.sentIndex + 1) + ': ' + drillRes.score + '% — ' + drillRes.tip;
         }
-        // Color just this sentence's words in the reading card
+        // Color just this sentence's words at character level (like Shadowing!)
         for (var i = 0; i < drillRes.words.length; i++) {
           var wIdx = sent.wordStart + i;
+          var dw = drillRes.words[i];
+          if (state.currentStructure.words[wIdx]) {
+            state.currentStructure.words[wIdx].score = dw.score;
+            state.currentStructure.words[wIdx].spoken = dw.spoken;
+            state.currentStructure.words[wIdx].level = dw.level;
+            state.currentStructure.words[wIdx].chars = dw.chars;
+          }
           var el = document.querySelector('#psgParagraphs .psg-w[data-widx="' + wIdx + '"]');
           if (el) {
             el.classList.remove('level-good', 'level-warn', 'level-bad', 'level-neutral');
-            el.classList.add('level-' + (drillRes.words[i].level || 'neutral'));
+            el.classList.add('is-evaluated', 'level-' + (dw.level || 'neutral'));
+            if (Array.isArray(dw.chars) && dw.chars.length > 0) {
+              el.innerHTML = renderWordCharsHtml(dw.chars, dw.text);
+            }
           }
         }
       }
@@ -1543,6 +1666,25 @@
 
     var bUser = $('psgBtnPlayUser');
     if (bUser) bUser.addEventListener('click', playUserAudio);
+
+    var bRecheck = $('psgBtnRecheck');
+    if (bRecheck) {
+      bRecheck.addEventListener('click', function () {
+        if (state.lastSpokenText) {
+          var dur = state.readStartTime ? ((Date.now() - state.readStartTime) / 1000) : 0;
+          runEvaluation(state.lastSpokenText, dur);
+        }
+        var fb = $('psgFallbackBar');
+        if (fb) {
+          fb.classList.remove('hidden');
+          var inp = $('psgFallbackInput');
+          if (inp) {
+            if (state.lastSpokenText && !inp.value.trim()) inp.value = state.lastSpokenText;
+            inp.focus();
+          }
+        }
+      });
+    }
 
     var bTh = $('psgBtnToggleTh');
     if (bTh) {
