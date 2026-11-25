@@ -74,19 +74,31 @@
     return ia !== undefined && ia === ib;
   }
 
+  // Reusable scratch buffers for zero-allocation Levenshtein inside hot DP loops
+  var LEV_PREV = new Uint16Array(64);
+  var LEV_CURR = new Uint16Array(64);
+
   function levenshtein(a, b) {
     var m = a.length;
     var n = b.length;
     if (m === 0) return n;
     if (n === 0) return m;
-    var prev = new Uint16Array(n + 1);
-    var curr = new Uint16Array(n + 1);
+    if (n + 1 > LEV_PREV.length) {
+      LEV_PREV = new Uint16Array(n + 32);
+      LEV_CURR = new Uint16Array(n + 32);
+    }
+    var prev = LEV_PREV;
+    var curr = LEV_CURR;
     for (var j = 0; j <= n; j++) prev[j] = j;
     for (var i = 1; i <= m; i++) {
+      var ai = a.charCodeAt(i - 1);
       curr[0] = i;
       for (var k = 1; k <= n; k++) {
-        var cost = a[i - 1] === b[k - 1] ? 0 : 1;
-        curr[k] = Math.min(prev[k] + 1, curr[k - 1] + 1, prev[k - 1] + cost);
+        var cost = ai === b.charCodeAt(k - 1) ? 0 : 1;
+        var del = prev[k] + 1;
+        var ins = curr[k - 1] + 1;
+        var sub = prev[k - 1] + cost;
+        curr[k] = del < ins ? (del < sub ? del : sub) : (ins < sub ? ins : sub);
       }
       var tmp = prev;
       prev = curr;
@@ -95,16 +107,45 @@
     return prev[n];
   }
 
+  function wordCharMask(str) {
+    var mask = 0;
+    for (var i = 0; i < str.length; i++) {
+      var code = str.charCodeAt(i) - 97;
+      if (code >= 0 && code < 26) mask |= (1 << code);
+    }
+    return mask;
+  }
+
+  function wordSimilarityFast(a, b, af, bf, maskA, maskB) {
+    if (!a || !b) return 0;
+    if (a === b) return 100;
+    if (areHomophones(a, b)) return 100;
+    if (af === bf) return 98;
+    var la = af.length;
+    var lb = bf.length;
+    var maxL = la > lb ? la : lb;
+    if (maxL === 0) return 0;
+    var diffL = la > lb ? (la - lb) : (lb - la);
+    // Length-ratio early reject: can never reach similarity >= 35
+    if (diffL * 100 > maxL * 65) return 0;
+    // 26-bit letter-overlap early reject (2 CPU instructions!)
+    if (maskA && maskB) {
+      var shared = maskA & maskB;
+      if (shared === 0) return 0;
+      // For 4+ letter words, <= 1 distinct shared letter cannot reach >= 35% unless repeated identically
+      if (maxL >= 5 && (shared & (shared - 1)) === 0) return 0;
+    }
+    var dist = levenshtein(af, bf);
+    return dist >= maxL ? 0 : Math.round((1 - dist / maxL) * 100);
+  }
+
   function wordSimilarity(a, b) {
     if (!a || !b) return 0;
-    if (a === b || areHomophones(a, b)) return 100;
-    var af = a.replace(/['-]/g, '');
-    var bf = b.replace(/['-]/g, '');
-    if (af === bf) return 98;
-    var maxL = Math.max(af.length, bf.length);
-    if (maxL === 0) return 0;
-    var dist = levenshtein(af, bf);
-    return Math.max(0, Math.round((1 - dist / maxL) * 100));
+    if (a === b) return 100;
+    if (areHomophones(a, b)) return 100;
+    var af = a.indexOf("'") === -1 && a.indexOf('-') === -1 ? a : a.replace(/['-]/g, '');
+    var bf = b.indexOf("'") === -1 && b.indexOf('-') === -1 ? b : b.replace(/['-]/g, '');
+    return wordSimilarityFast(a, b, af, bf);
   }
 
   function matchesTwoWords(singleClean, w1, w2) {
@@ -196,7 +237,7 @@
   }
 
   /**
-   * Fast banded DP alignment for long passages (250+ words in <10ms).
+   * Fast banded DP alignment for long passages (1,100+ words in <100ms).
    */
   function alignPassageWords(targetWords, spokenWords) {
     var M = targetWords.length;
@@ -207,8 +248,35 @@
     }
     if (M === 0 || N === 0) return result;
 
-    // Band width adapts to length difference while staying fast on 250+ word passages
-    var band = Math.max(30, Math.abs(M - N) + 25);
+    // Precompute stripped forms, 26-bit letter masks, and contraction/hyphen flags ONCE
+    var tCleans = new Array(M);
+    var tFlats = new Array(M);
+    var tMasks = new Int32Array(M);
+    var tCanSplit = new Uint8Array(M);
+    for (var ti0 = 0; ti0 < M; ti0++) {
+      var tc = targetWords[ti0].clean;
+      tCleans[ti0] = tc;
+      var hasPunct = tc.indexOf("'") !== -1 || tc.indexOf('-') !== -1;
+      var tf = hasPunct ? tc.replace(/['-]/g, '') : tc;
+      tFlats[ti0] = tf;
+      tMasks[ti0] = wordCharMask(tf);
+      if (hasPunct || CONTRACTION_MAP[tc]) tCanSplit[ti0] = 1;
+    }
+
+    var sFlats = new Array(N);
+    var sMasks = new Int32Array(N);
+    var sCanSplit = new Uint8Array(N);
+    for (var si0 = 0; si0 < N; si0++) {
+      var sc = spokenWords[si0];
+      var sPunct = sc.indexOf("'") !== -1 || sc.indexOf('-') !== -1;
+      var sf = sPunct ? sc.replace(/['-]/g, '') : sc;
+      sFlats[si0] = sf;
+      sMasks[si0] = wordCharMask(sf);
+      if (sPunct || CONTRACTION_MAP[sc]) sCanSplit[si0] = 1;
+    }
+
+    // Band width adapts to length difference while staying fast on 1,100+ word C2 passages
+    var band = Math.min(220, Math.max(30, Math.abs(M - N) + 25));
     var NEG_INF = -1e9;
 
     // Sparse banded storage: each row r stores columns [jMin..jMax]
@@ -229,11 +297,6 @@
       rows[r].fill(NEG_INF);
     }
 
-    function getDp(r, c) {
-      if (r < 0 || r > M || c < jMins[r] || c > jMaxs[r]) return NEG_INF;
-      return rows[r][c - jMins[r]];
-    }
-
     // Initialize row 0
     for (var c0 = jMins[0]; c0 <= jMaxs[0]; c0++) {
       rows[0][c0 - jMins[0]] = -4 * c0;
@@ -245,35 +308,54 @@
     }
 
     for (var r1 = 1; r1 <= M; r1++) {
-      var tClean = targetWords[r1 - 1].clean;
+      var tClean = tCleans[r1 - 1];
+      var tFlat = tFlats[r1 - 1];
+      var tMask = tMasks[r1 - 1];
+      var tSplit = tCanSplit[r1 - 1];
       var cStart = jMins[r1];
       var cEnd = jMaxs[r1];
+      var curRow = rows[r1];
+      var curBt = bts[r1];
+      var prevRow = rows[r1 - 1];
+      var prevJMin = jMins[r1 - 1];
+      var prevJMax = jMaxs[r1 - 1];
+      var prev2Row = r1 >= 2 ? rows[r1 - 2] : null;
+      var prev2JMin = r1 >= 2 ? jMins[r1 - 2] : 0;
+      var prev2JMax = r1 >= 2 ? jMaxs[r1 - 2] : -1;
+
       for (var c1 = cStart; c1 <= cEnd; c1++) {
-        var bestVal = getDp(r1 - 1, c1); // skip target word (op 2)
+        // op 2: skip target word
+        var bestVal = (c1 >= prevJMin && c1 <= prevJMax) ? prevRow[c1 - prevJMin] : NEG_INF;
         var bestOp = 2;
 
         if (c1 > 0) {
-          var skipSpoken = getDp(r1, c1 - 1) - 4; // skip spoken word (op 3)
-          if (skipSpoken > bestVal) {
-            bestVal = skipSpoken;
-            bestOp = 3;
-          }
-
-          var sClean = spokenWords[c1 - 1];
-          var sim11 = wordSimilarity(tClean, sClean);
-          if (sim11 >= 35) {
-            var m11 = getDp(r1 - 1, c1 - 1) + sim11;
-            if (m11 > bestVal) {
-              bestVal = m11;
-              bestOp = 1;
+          // op 3: skip spoken word
+          if (c1 - 1 >= cStart) {
+            var skipSpoken = curRow[c1 - 1 - cStart] - 4;
+            if (skipSpoken > bestVal) {
+              bestVal = skipSpoken;
+              bestOp = 3;
             }
           }
 
-          // 1 target : 2 spoken (contraction / hyphen)
-          if (c1 >= 2) {
+          var sClean = spokenWords[c1 - 1];
+          // op 1: 1-to-1 word match
+          if (c1 - 1 >= prevJMin && c1 - 1 <= prevJMax) {
+            var sim11 = (tClean === sClean) ? 100 : wordSimilarityFast(tClean, sClean, tFlat, sFlats[c1 - 1], tMask, sMasks[c1 - 1]);
+            if (sim11 >= 35) {
+              var m11 = prevRow[c1 - 1 - prevJMin] + sim11;
+              if (m11 > bestVal) {
+                bestVal = m11;
+                bestOp = 1;
+              }
+            }
+          }
+
+          // op 4: 1 target : 2 spoken (only check when target word is a contraction/hyphen!)
+          if (tSplit && c1 >= 2 && c1 - 2 >= prevJMin && c1 - 2 <= prevJMax) {
             var sim12 = matchesTwoWords(tClean, spokenWords[c1 - 2], sClean);
             if (sim12 >= 65) {
-              var m12 = getDp(r1 - 1, c1 - 2) + sim12 + 5;
+              var m12 = prevRow[c1 - 2 - prevJMin] + sim12 + 5;
               if (m12 > bestVal) {
                 bestVal = m12;
                 bestOp = 4;
@@ -281,11 +363,11 @@
             }
           }
 
-          // 2 target : 1 spoken
-          if (r1 >= 2) {
-            var sim21 = matchesTwoWords(sClean, targetWords[r1 - 2].clean, tClean);
+          // op 5: 2 target : 1 spoken (only check when spoken word is a contraction/hyphen!)
+          if (sCanSplit[c1 - 1] && r1 >= 2 && c1 - 1 >= prev2JMin && c1 - 1 <= prev2JMax) {
+            var sim21 = matchesTwoWords(sClean, tCleans[r1 - 2], tClean);
             if (sim21 >= 65) {
-              var m21 = getDp(r1 - 2, c1 - 1) + sim21 * 2 + 5;
+              var m21 = prev2Row[c1 - 1 - prev2JMin] + sim21 * 2 + 5;
               if (m21 > bestVal) {
                 bestVal = m21;
                 bestOp = 5;
@@ -294,8 +376,8 @@
           }
         }
 
-        rows[r1][c1 - cStart] = bestVal;
-        bts[r1][c1 - cStart] = bestOp;
+        curRow[c1 - cStart] = bestVal;
+        curBt[c1 - cStart] = bestOp;
       }
     }
 
