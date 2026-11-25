@@ -944,6 +944,12 @@
                 }
 
                 renderInfoPanel(item, result);
+
+                // Always reveal Listen-to-Your-Voice button if audio was already captured before evaluation
+                const btnPlayUser = document.getElementById('elsaBtnPlayUser');
+                if (btnPlayUser && elsaRecorder && typeof elsaRecorder.getLastAudioUrl === 'function' && elsaRecorder.getLastAudioUrl()) {
+                    btnPlayUser.classList.remove('hidden');
+                }
             }
 
             // =================================================================
@@ -1066,7 +1072,15 @@
             }
 
             function resetCardState() {
-                stopRecording();
+                const recActive = elsaRecorder && typeof elsaRecorder.isRecording === 'function'
+                    ? elsaRecorder.isRecording()
+                    : elsaIsRecording;
+                if (elsaMicState !== 'idle' || elsaIsRecording || recActive) {
+                    stopRecording();
+                } else {
+                    hideWaveform();
+                    updateMicUI();
+                }
                 if (window.ElsaShadowingEngine && typeof window.ElsaShadowingEngine.stopSpeaking === 'function') {
                     window.ElsaShadowingEngine.stopSpeaking();
                 }
@@ -1574,39 +1588,50 @@
                             evaluateAndRender(finalTranscript, alternatives || []);
                         },
                         onAudioReady: (audioUrl) => {
-                            if (audioUrl && elsaLastResult) {
+                            if (audioUrl && (elsaLastResult || elsaMicState === 'idle')) {
                                 document.getElementById('elsaBtnPlayUser').classList.remove('hidden');
                             }
                         },
                         onAudioCaptured: async (capture) => {
-                            if (!capture || capture.hadSpeechResult || !capture.base64 || !backendStatus.ok) return;
+                            if (!capture || capture.hadSpeechResult) return;
+                            const btnPlayUser = document.getElementById('elsaBtnPlayUser');
+                            if (capture.url && btnPlayUser) {
+                                btnPlayUser.classList.remove('hidden');
+                            }
                             const item = getCurrentItem();
-                            if (!item) return;
-                            try {
-                                setInterimMessage('กำลังวิเคราะห์เสียงด้วย AI...', false);
-                                const cfg = engine.getVoiceSettings();
-                                const res = await fetch('./api/evaluate', {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({
-                                        id: item.id,
-                                        lang: elsaLang,
-                                        mode: elsaMode,
-                                        audioBase64: capture.base64,
-                                        mimeType: capture.mimeType || 'audio/webm',
-                                        apiKey: cfg.apiKey || ''
-                                    })
-                                });
-                                if (!res.ok) return;
-                                const data = await res.json();
-                                if (data && data.transcript && data.transcript.trim()) {
-                                    setInterimMessage('', false);
-                                    evaluateAndRender(data.transcript.trim(), data.alternatives || [], data.phoneticTipTh);
-                                    if (capture.url) {
-                                        document.getElementById('elsaBtnPlayUser').classList.remove('hidden');
+                            let gotTranscript = false;
+                            if (item && capture.base64 && backendStatus.ok) {
+                                try {
+                                    setInterimMessage('กำลังวิเคราะห์เสียงด้วย AI...', false);
+                                    const cfg = engine.getVoiceSettings();
+                                    const res = await fetch('./api/evaluate', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            id: item.id,
+                                            lang: elsaLang,
+                                            mode: elsaMode,
+                                            audioBase64: capture.base64,
+                                            mimeType: capture.mimeType || 'audio/webm',
+                                            apiKey: cfg.apiKey || ''
+                                        })
+                                    });
+                                    if (res.ok) {
+                                        const data = await res.json();
+                                        if (data && data.transcript && data.transcript.trim()) {
+                                            gotTranscript = true;
+                                            setInterimMessage('', false);
+                                            evaluateAndRender(data.transcript.trim(), data.alternatives || [], data.phoneticTipTh);
+                                            if (capture.url && btnPlayUser) {
+                                                btnPlayUser.classList.remove('hidden');
+                                            }
+                                        }
                                     }
-                                }
-                            } catch (e) { /* ignore backend eval failure */ }
+                                } catch (e) { /* ignore backend eval failure */ }
+                            }
+                            if (!gotTranscript && capture.url) {
+                                setInterimMessage('🎙️ บันทึกเสียงของคุณแล้ว (กดปุ่ม 🗣️ บนการ์ดเพื่อฟังเสียงที่อัดไว้) — เบราว์เซอร์ไม่ได้ส่งข้อความเสียงกลับมา ลองพูดอีกครั้งหรือใช้ปุ่ม ⌨️', false);
+                            }
                         },
                         onError: (code, messageTh) => {
                             elsaMicState = 'idle';

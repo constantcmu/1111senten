@@ -1848,7 +1848,10 @@
     var cbs = callbacks || {};
 
     var recognition = null;
-    var recognitionActive = false;
+    var browserRecAlive = false;
+    var lastRecStopTime = 0;
+    var startDelayTimer = null;
+    var mediaStartFallbackTimer = null;
     var stopFallbackTimer = null;
     var mediaRecorder = null;
     var mediaStream = null;
@@ -1860,9 +1863,24 @@
     var lastInterimTranscript = '';
     var currentLang = 'en-US';
     var sessionSeq = 0;
-    var mediaCaptureDisabled = false;
     var mediaCaptureStartedForSession = false;
+    var userStoppedSession = false;
     var currentEmitEndOnce = null;
+
+    function clearRecorderTimers() {
+      if (stopFallbackTimer) {
+        clearTimeout(stopFallbackTimer);
+        stopFallbackTimer = null;
+      }
+      if (startDelayTimer) {
+        clearTimeout(startDelayTimer);
+        startDelayTimer = null;
+      }
+      if (mediaStartFallbackTimer) {
+        clearTimeout(mediaStartFallbackTimer);
+        mediaStartFallbackTimer = null;
+      }
+    }
 
     function clearStopFallbackTimer() {
       if (stopFallbackTimer) {
@@ -1919,6 +1937,7 @@
 
     var waveformTimer = null;
     var audioContext = null;
+    var sourceNode = null;
     var analyserNode = null;
     var mediaOnlyMode = false;
 
@@ -1927,38 +1946,46 @@
         clearInterval(waveformTimer);
         waveformTimer = null;
       }
-      analyserNode = null;
-      if (audioContext) {
-        try {
-          if (typeof audioContext.close === 'function' && audioContext.state !== 'closed') {
-            audioContext.close().catch(function () { /* ignore */ });
-          }
-        } catch (e) { /* ignore */ }
-        audioContext = null;
+      if (sourceNode) {
+        try { sourceNode.disconnect(); } catch (e) { /* ignore */ }
+        sourceNode = null;
       }
+      if (analyserNode) {
+        try { analyserNode.disconnect(); } catch (e) { /* ignore */ }
+        analyserNode = null;
+      }
+      // Keep shared `audioContext` alive across sentences to avoid exhausting hardware handles!
     }
 
     function startWaveform(stream, mySession) {
       stopWaveform();
-      if (typeof cbs.onWaveform !== 'function') return;
       var AudioCtx = (typeof window !== 'undefined')
         ? (window.AudioContext || window.webkitAudioContext || null)
         : null;
       if (!AudioCtx) return;
 
       try {
-        var ctx = new AudioCtx();
-        var source = ctx.createMediaStreamSource(stream);
-        var analyser = ctx.createAnalyser();
+        // Reuse ONE shared AudioContext across sentences instead of creating & closing every time
+        if (!audioContext || audioContext.state === 'closed') {
+          audioContext = new AudioCtx();
+        }
+        if (audioContext.state === 'suspended' && typeof audioContext.resume === 'function') {
+          audioContext.resume().catch(function () { /* ignore */ });
+        }
+
+        var source = audioContext.createMediaStreamSource(stream);
+        var analyser = audioContext.createAnalyser();
         analyser.fftSize = 64;
         analyser.smoothingTimeConstant = 0.65;
         source.connect(analyser);
 
-        audioContext = ctx;
+        sourceNode = source;
         analyserNode = analyser;
 
         var freqData = new Uint8Array(analyser.frequencyBinCount);
         var timeData = new Uint8Array(analyser.fftSize);
+        var peakRms = 0;
+        var silentSince = 0;
 
         waveformTimer = setInterval(function () {
           if (!isRecording || mySession !== sessionSeq || !analyserNode) {
@@ -1988,7 +2015,22 @@
               sqSum += centered * centered;
             }
             var rms = Math.min(100, Math.round(Math.sqrt(sqSum / timeData.length) * 260));
-            safeCall(cbs.onWaveform, bars16, rms);
+            if (typeof cbs.onWaveform === 'function') {
+              safeCall(cbs.onWaveform, bars16, rms);
+            }
+
+            // Silence Auto-Stop: if user spoke loudly (peakRms > 18) and then stayed silent (rms < 6)
+            // for 1400ms while in mediaOnlyMode or without a final SpeechRecognition result, auto-stop!
+            if (rms > peakRms) peakRms = rms;
+            if (peakRms > 18 && rms < 6) {
+              if (!silentSince) {
+                silentSince = Date.now();
+              } else if (Date.now() - silentSince >= 1400 && (mediaOnlyMode || !receivedFinalResult)) {
+                stop();
+              }
+            } else if (rms >= 6) {
+              silentSince = 0;
+            }
           } catch (e) { /* ignore */ }
         }, 60);
       } catch (e) {
@@ -2060,7 +2102,6 @@
 
     function canUseMediaRecorder() {
       return (
-        !mediaCaptureDisabled &&
         typeof navigator !== 'undefined' &&
         Boolean(navigator.mediaDevices) &&
         typeof navigator.mediaDevices.getUserMedia === 'function' &&
@@ -2069,6 +2110,7 @@
     }
 
     function startMediaCapture(mySession, isMediaOnly) {
+      if (mediaCaptureStartedForSession && !isMediaOnly) return;
       if (!canUseMediaRecorder()) {
         if (isMediaOnly && mySession === sessionSeq) {
           mediaOnlyMode = false;
@@ -2118,7 +2160,6 @@
               ? new MediaRecorder(stream, options)
               : new MediaRecorder(stream);
           } catch (err) {
-            mediaCaptureDisabled = true;
             stopMediaTracks();
             if (isMediaOnly && mySession === sessionSeq) {
               mediaOnlyMode = false;
@@ -2181,7 +2222,6 @@
 
           mr.onerror = function () {
             stopWaveform();
-            mediaCaptureDisabled = true;
             try {
               stream.getTracks().forEach(function (t) { t.stop(); });
             } catch (e) { /* ignore */ }
@@ -2202,8 +2242,7 @@
           }
         })
         .catch(function () {
-          // Gracefully degrade: SpeechRecognition still works even if MediaRecorder/mic capture fails
-          mediaCaptureDisabled = true;
+          // Gracefully degrade for THIS attempt only (never permanently disable MediaRecorder!)
           if (isMediaOnly && mySession === sessionSeq) {
             mediaOnlyMode = false;
             isRecording = false;
@@ -2230,13 +2269,13 @@
       return isRecording;
     }
 
-    function startInternal(isRetryWithoutMedia) {
+    function startInternal() {
       var SpeechRecognitionCtor = getSpeechRecognitionCtor();
       if (!SpeechRecognitionCtor) {
         // Fallback: if Web Speech API is unavailable but MediaRecorder + onAudioCaptured are available,
         // record real audio so the UI can send it to POST /api/evaluate!
         if (typeof cbs.onAudioCaptured === 'function' && canUseMediaRecorder()) {
-          clearStopFallbackTimer();
+          clearRecorderTimers();
           stopSpeaking();
           stopUserAudioPlayback();
           stopMediaRecorder(true);
@@ -2245,11 +2284,13 @@
           mediaOnlyMode = true;
           receivedFinalResult = false;
           lastInterimTranscript = '';
+          mediaCaptureStartedForSession = false;
+          userStoppedSession = false;
           startMediaCapture(mediaSession, true);
           return true;
         }
         isRecording = false;
-        recognitionActive = false;
+        browserRecAlive = false;
         safeCall(
           cbs.onError,
           'not-supported',
@@ -2259,47 +2300,44 @@
         return false;
       }
 
-      clearStopFallbackTimer();
+      clearRecorderTimers();
       mediaOnlyMode = false;
 
       // Stop any active TTS or user audio playback before opening microphone
       stopSpeaking();
       stopUserAudioPlayback();
 
-      // Only abort an older recognition instance if it is genuinely still active!
-      // Calling abort() on an already-ending instance in Chrome can cancel the NEW instance.
+      // Cleanly abort any prior recognition instance before detaching handlers
       if (recognition) {
         var oldRec = recognition;
-        var wasActive = recognitionActive;
         recognition = null;
-        recognitionActive = false;
-        detachRecognition(oldRec);
-        if (wasActive) {
+        if (browserRecAlive) {
           try {
             oldRec.abort();
           } catch (e) { /* ignore */ }
+          browserRecAlive = false;
+          lastRecStopTime = Date.now();
         }
+        detachRecognition(oldRec);
       }
       // Release any lingering MediaStream tracks immediately so mic is free for this attempt
       stopMediaRecorder(true);
 
       var mySession = ++sessionSeq;
       var endedEmitted = false;
-      var retryingWithoutMedia = false;
 
       isRecording = true;
-      recognitionActive = true;
       receivedFinalResult = false;
       lastInterimTranscript = '';
       mediaCaptureStartedForSession = false;
+      userStoppedSession = false;
 
       function emitEndOnce() {
         if (endedEmitted) return;
         endedEmitted = true;
-        clearStopFallbackTimer();
+        clearRecorderTimers();
         if (mySession === sessionSeq) {
           isRecording = false;
-          recognitionActive = false;
           if (currentEmitEndOnce === emitEndOnce) currentEmitEndOnce = null;
         }
         stopMediaRecorder(false);
@@ -2316,11 +2354,14 @@
 
       rec.onstart = function () {
         if (mySession !== sessionSeq) return;
+        if (mediaStartFallbackTimer) {
+          clearTimeout(mediaStartFallbackTimer);
+          mediaStartFallbackTimer = null;
+        }
         safeCall(cbs.onStart);
-        // Start optional MediaRecorder AFTER SpeechRecognition acquires the mic
-        // so it never competes with initial mic permission or locks the hardware!
-        if (!isRetryWithoutMedia && !mediaCaptureDisabled) {
-          startMediaCapture(mySession);
+        // Start optional MediaRecorder + Waveform AFTER SpeechRecognition acquires the mic
+        if (!mediaCaptureStartedForSession) {
+          startMediaCapture(mySession, false);
         }
       };
 
@@ -2358,6 +2399,12 @@
         if (finalTranscript) {
           receivedFinalResult = true;
           safeCall(cbs.onResult, finalTranscript, alternatives);
+          // Immediately shut down MediaRecorder & SpeechRecognition so Sentence 1 never lingers into Sentence 2!
+          stopMediaRecorder(false);
+          try {
+            rec.stop();
+          } catch (e) { /* ignore */ }
+          lastRecStopTime = Date.now();
         }
       };
 
@@ -2365,18 +2412,8 @@
         if (mySession !== sessionSeq) return;
         var code = (event && event.error) || 'unknown';
 
-        // If MediaRecorder caused mic contention (audio-capture/aborted) on this device,
-        // disable MediaRecorder for the session and retry SpeechRecognition cleanly once!
-        if (!isRetryWithoutMedia && mediaCaptureStartedForSession && (code === 'audio-capture' || code === 'aborted')) {
-          mediaCaptureDisabled = true;
-          retryingWithoutMedia = true;
-          stopMediaRecorder(true);
-          detachRecognition(rec);
-          if (recognition === rec) {
-            recognition = null;
-            recognitionActive = false;
-          }
-          startInternal(true);
+        // Suppress benign 'aborted' error when stopping after a final result or explicit user stop
+        if (code === 'aborted' && (receivedFinalResult || userStoppedSession)) {
           return;
         }
 
@@ -2393,11 +2430,12 @@
       };
 
       rec.onend = function () {
-        if (mySession !== sessionSeq || retryingWithoutMedia) return;
         if (recognition === rec) {
           recognition = null;
-          recognitionActive = false;
+          browserRecAlive = false;
+          lastRecStopTime = Date.now();
         }
+        if (mySession !== sessionSeq) return;
         var hadInterimOnly = !receivedFinalResult && Boolean(lastInterimTranscript);
         isRecording = false;
         stopMediaRecorder(false);
@@ -2408,35 +2446,68 @@
         emitEndOnce();
       };
 
-      // Call recognition.start() synchronously inside user gesture!
-      try {
-        rec.start();
-        return true;
-      } catch (err) {
-        detachRecognition(rec);
-        if (recognition === rec) {
-          recognition = null;
-          recognitionActive = false;
+      function launchRecognition() {
+        if (mySession !== sessionSeq || !isRecording) return;
+        try {
+          browserRecAlive = true;
+          rec.start();
+          // 500ms fallback: start MediaRecorder + Waveform even if Chrome's rec.onstart is delayed/silent
+          mediaStartFallbackTimer = setTimeout(function () {
+            mediaStartFallbackTimer = null;
+            if (isRecording && mySession === sessionSeq && !mediaCaptureStartedForSession) {
+              startMediaCapture(mySession, false);
+            }
+          }, 500);
+        } catch (err) {
+          detachRecognition(rec);
+          if (recognition === rec) {
+            recognition = null;
+            browserRecAlive = false;
+          }
+          safeCall(cbs.onError, 'start-failed', 'ไม่สามารถเริ่มการฟังเสียงได้ กรุณาลองกดไมโครโฟนอีกครั้ง');
+          emitEndOnce();
         }
-        safeCall(cbs.onError, 'start-failed', 'ไม่สามารถเริ่มการฟังเสียงได้ กรุณาลองกดไมโครโฟนอีกครั้ง');
-        emitEndOnce();
-        return false;
       }
+
+      // If a previous SpeechRecognition was just stopped/aborted within 120ms,
+      // wait 120ms so Chrome's C++ speech engine finishes releasing the old session cleanly.
+      var sinceLastStop = lastRecStopTime ? (Date.now() - lastRecStopTime) : 9999;
+      if (sinceLastStop < 120) {
+        startDelayTimer = setTimeout(function () {
+          startDelayTimer = null;
+          launchRecognition();
+        }, 120);
+        return true;
+      }
+
+      // Otherwise call rec.start() synchronously inside the user click gesture!
+      launchRecognition();
+      return isRecording;
     }
 
     function start(langOverride) {
       if (langOverride) {
         currentLang = normalizeBcp47(langOverride);
       }
-      return startInternal(false);
+      return startInternal();
     }
 
     function stop() {
       isRecording = false;
+      userStoppedSession = true;
+      if (startDelayTimer) {
+        clearTimeout(startDelayTimer);
+        startDelayTimer = null;
+      }
+      if (mediaStartFallbackTimer) {
+        clearTimeout(mediaStartFallbackTimer);
+        mediaStartFallbackTimer = null;
+      }
+
       var activeRec = recognition;
       var emitEnd = currentEmitEndOnce;
-      if (activeRec && recognitionActive) {
-        recognitionActive = false;
+      if (activeRec && browserRecAlive) {
+        lastRecStopTime = Date.now();
         try {
           activeRec.stop();
         } catch (e) { /* ignore */ }
@@ -2447,15 +2518,19 @@
           stopFallbackTimer = null;
           if (stopSession === sessionSeq) {
             if (recognition === activeRec) {
+              try { activeRec.abort(); } catch (e) { /* ignore */ }
               detachRecognition(activeRec);
               recognition = null;
+              browserRecAlive = false;
+              lastRecStopTime = Date.now();
             }
             if (typeof emitEnd === 'function') emitEnd();
           }
         }, 300);
-      } else {
+      } else if (!mediaOnlyMode) {
         recognition = null;
-        recognitionActive = false;
+        browserRecAlive = false;
+        if (typeof emitEnd === 'function') emitEnd();
       }
       stopMediaRecorder(false);
     }
